@@ -242,7 +242,7 @@ jobs:
         run: |
           base=$(python3 -c "import re;print('.'.join(re.search(r'\"(\d+)\.(\d+)', open('doppleganger/__init__.py').read()).groups()))")
           v="$base.$(( ${{ github.run_number }} + BUILD_OFFSET ))"
-          notes="**Download:** https://busybeavernc.github.io/doppleganger-public/ (picks the right file for your computer).
+          notes="**Download:** https://doppleganger.happyhacks.io/ (picks the right file for your computer).
 
           **Windows:** DopplegangerSetup.exe. **Mac:** Doppleganger-mac-arm64.dmg (Apple Silicon) or Doppleganger-mac-x86_64.dmg (Intel), added a few minutes after this release appears; needs [OBS Studio](https://obsproject.com/download) 30+.
 
