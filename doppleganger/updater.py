@@ -76,8 +76,25 @@ def _request(url: str, token: str, accept: str = "application/vnd.github+json") 
     return urllib.request.Request(url, headers=headers)
 
 
+LEGACY_REPO = "busybeavernc/doppleganger"  # where releases lived before the public downloads repo
+
+
 def check(repo: str, token: str = "", timeout: float = 5.0) -> Release | None:
-    """Newer release than the running version, or None if up to date."""
+    """Newer release than the running version, or None if up to date.
+    While releases move to the public downloads repo, the old repo is asked too if the new one fails."""
+    try:
+        return _check(repo, token, timeout)
+    except UpdateError:
+        if repo == LEGACY_REPO:
+            raise
+        try:
+            return _check(LEGACY_REPO, token, timeout)
+        except UpdateError:
+            pass
+        raise
+
+
+def _check(repo: str, token: str = "", timeout: float = 5.0) -> Release | None:
     url = f"https://api.github.com/repos/{repo}/releases/latest"
     try:
         with urllib.request.urlopen(_request(url, token), timeout=timeout) as r:

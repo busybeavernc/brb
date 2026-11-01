@@ -2,9 +2,12 @@
 
 **Doppleganger** records a short, seamless loop of you, then lets you switch between that loop and your live webcam in Zoom, Teams or any browser meeting — without anyone noticing. Windows 10/11 and macOS 12+.
 
+
+**Download: [busybeavernc.github.io/doppleganger-public](https://busybeavernc.github.io/doppleganger-public/).** Releases are published to the public [doppleganger-public](https://github.com/busybeavernc/doppleganger-public) repo, so this code repo can be private.
+
 ## Install
 
-1. Download **DopplegangerSetup.exe** from the [latest release](https://github.com/busybeavernc/doppleganger/releases/latest) and run it. No admin rights needed. It adds a Start-menu entry, an optional desktop shortcut, and an uninstall entry in *Settings → Apps*.
+1. Download **DopplegangerSetup.exe** from the [latest release](https://github.com/busybeavernc/doppleganger-public/releases/latest) and run it. No admin rights needed. It adds a Start-menu entry, an optional desktop shortcut, and an uninstall entry in *Settings → Apps*.
 2. Doppleganger opens with a short **setup guide**:
    1. **Add the Doppleganger camera.** Windows asks for permission once.
    2. **Choose your webcam.**
@@ -16,7 +19,7 @@ You can reopen the guide any time from the *Setup guide* button. OBS Studio is n
 Your loops and settings live in `%APPDATA%\Doppleganger` and are kept if you uninstall. A copy run from its own folder that already contains `config.json` or `loops\` (as earlier versions did) keeps using that folder.
 
 ### Mac
-1. Download the Mac disk image from the [latest release](https://github.com/busybeavernc/doppleganger/releases/latest): **Doppleganger-mac-arm64.dmg** for Apple Silicon (M1 or newer) or **Doppleganger-mac-x86_64.dmg** for Intel Macs. Open it and drag **Doppleganger** onto **Applications**.
+1. Download the Mac disk image from the [latest release](https://github.com/busybeavernc/doppleganger-public/releases/latest): **Doppleganger-mac-arm64.dmg** for Apple Silicon (M1 or newer) or **Doppleganger-mac-x86_64.dmg** for Intel Macs. Open it and drag **Doppleganger** onto **Applications**.
 2. The first time, macOS says Doppleganger *"can't be opened because Apple cannot check it for malicious software"*, because the app isn't notarized by Apple yet. Click **OK**, go to *System Settings → Privacy & Security*, scroll down and click **Open Anyway**, then open it again and choose **Open**. On macOS 14 or older, **right-click → Open** also works. A Terminal fallback: `xattr -dr com.apple.quarantine /Applications/Doppleganger.app`.
 3. Allow the **camera** when macOS asks.
 4. **OBS Studio is needed on a Mac.** Doppleganger sends your picture through the free OBS Virtual Camera, because a Mac camera driver of our own needs a paid Apple developer certificate. The setup guide checks whether OBS and its camera are installed. If they aren't, it has a **Download OBS Studio** button ([obsproject.com/download](https://obsproject.com/download)) and walks you through the one-time steps:
@@ -40,7 +43,7 @@ On a Mac, text follows the system's standard size. *Settings → Text size* (or 
 Loading the AI model and opening the webcam takes a few seconds, so a splash screen with the logo shows what's happening until the window opens.
 
 ### Updates
-Each time it opens, Doppleganger checks the releases. If there's a newer version, it shows an "Updating…" window, swaps itself out and reopens. *Settings → Updates → Check now* checks manually. An update never interrupts you while the LOOP is on air or a recording is running.
+Each time it opens, Doppleganger checks the releases in the public downloads repo (`update_repo` in the settings file). If there's a newer version, it shows an "Updating…" window, swaps itself out and reopens. *Settings → Updates → Check now* checks manually. An update never interrupts you while the LOOP is on air or a recording is running.
 
 ### Code signing (self-signed)
 Release files are signed with a self-signed "Doppleganger" certificate (`doppleganger-publisher.cer` is attached to each release). Windows only trusts it on PCs that choose to: tick *Trust the Doppleganger publisher on this PC* in the installer, and Windows asks you to confirm. Other PCs still see the SmartScreen "unknown publisher" prompt (**More info → Run anyway**). A commercial code-signing certificate would remove that prompt everywhere; the build already supports one, so just swap the secrets.

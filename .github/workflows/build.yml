@@ -26,6 +26,10 @@ permissions:
 env:
   # Build numbers continue from the old "Build Windows app" workflow (last release v0.1.15).
   BUILD_OFFSET: 15
+  # Downloads live in the public repo busybeavernc/doppleganger-public (this code repo can be private).
+  # PUBLIC_RELEASES_TOKEN: fine-grained token with Contents: read & write on that repo only.
+  PUBLIC_REPO: busybeavernc/doppleganger-public
+  PUBLIC_TOKEN: ${{ secrets.PUBLIC_RELEASES_TOKEN }}
   SIGN_PFX: ${{ secrets.SIGNING_CERT_PFX_BASE64 }}
   SIGN_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
 
@@ -238,13 +242,19 @@ jobs:
         run: |
           base=$(python3 -c "import re;print('.'.join(re.search(r'\"(\d+)\.(\d+)', open('doppleganger/__init__.py').read()).groups()))")
           v="$base.$(( ${{ github.run_number }} + BUILD_OFFSET ))"
-          notes="**Download:** https://busybeavernc.github.io/doppleganger/ (picks the right file for your computer).
+          notes="**Download:** https://busybeavernc.github.io/doppleganger-public/ (picks the right file for your computer).
 
           **Windows:** DopplegangerSetup.exe. **Mac:** Doppleganger-mac-arm64.dmg (Apple Silicon) or Doppleganger-mac-x86_64.dmg (Intel), added a few minutes after this release appears; needs [OBS Studio](https://obsproject.com/download) 30+.
 
           $(git log -1 --pretty=%s)"
-          gh release create "v$v" artifacts/DopplegangerSetup.exe artifacts/Doppleganger.exe installer/doppleganger-publisher.cer \
-            --title "Doppleganger $v" --notes "$notes" --target "$GITHUB_SHA" --latest
+          files="artifacts/DopplegangerSetup.exe artifacts/Doppleganger.exe installer/doppleganger-publisher.cer"
+          gh release create "v$v" $files --title "Doppleganger $v" --notes "$notes" --target "$GITHUB_SHA" --latest
+          if [ -n "$PUBLIC_TOKEN" ]; then
+            GH_TOKEN="$PUBLIC_TOKEN" gh release create "v$v" $files -R "$PUBLIC_REPO" \
+              --title "Doppleganger $v" --notes "$notes" --latest
+          else
+            echo "::warning::PUBLIC_RELEASES_TOKEN not set - release published to this repo only"
+          fi
           echo "tag=v$v" >> "$GITHUB_OUTPUT"
 
   mac-release:
@@ -266,3 +276,6 @@ jobs:
           echo "$files"
           if [ -z "$files" ]; then echo "::warning::No Mac build succeeded this time"; exit 0; fi
           gh release upload "${{ needs.release.outputs.tag }}" $files --clobber -R "$GITHUB_REPOSITORY"
+          if [ -n "$PUBLIC_TOKEN" ]; then
+            GH_TOKEN="$PUBLIC_TOKEN" gh release upload "${{ needs.release.outputs.tag }}" $files --clobber -R "$PUBLIC_REPO"
+          fi

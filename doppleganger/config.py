@@ -6,6 +6,9 @@ import os
 from dataclasses import asdict, dataclass, fields
 
 
+LEGACY_UPDATE_REPO = "busybeavernc/doppleganger"
+
+
 @dataclass
 class Config:
     # Real webcam (remembered by name; the index is only a fallback)
@@ -37,7 +40,7 @@ class Config:
 
     # Updates (installed Doppleganger.exe only)
     auto_update: bool = True            # check GitHub Releases each time the app opens
-    update_repo: str = "busybeavernc/doppleganger"
+    update_repo: str = "busybeavernc/doppleganger-public"  # public downloads (the code repo may be private)
     update_token: str = ""              # read-only GitHub token, needed only while the repo is private
 
     # Privacy
@@ -65,6 +68,8 @@ class Config:
             for k, v in data.items():
                 if k in known:
                     setattr(cfg, k, v)
+            if cfg.update_repo == LEGACY_UPDATE_REPO:  # releases moved to the public downloads repo
+                cfg.update_repo = cls.update_repo
         return cfg
 
     def save(self, path: str) -> None:
