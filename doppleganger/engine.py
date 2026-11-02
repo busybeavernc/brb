@@ -14,7 +14,7 @@ import numpy as np
 from . import guides, library, updater
 from . import vcam as vcamlib
 from .calibrate import Calibrator
-from .camera import Camera
+from .camera import Camera, NoCamera, placeholder
 from .config import Config
 from .cutcontrol import SYNC_THRESHOLD, CutController
 from .glitch import Glitch
@@ -159,11 +159,25 @@ class Engine:
         self.cfg = cfg
         self.config_path = config_path
         say("Opening your webcam...", 0.5)
+        self._cam_lock = threading.RLock()   # the camera watcher and camera switching take turns
+        self._cams: list[str] = [n for _, n in vcamlib.real_cameras()]
+        self._cams_at = time.monotonic()
+        self.cameras_seq = 0                 # bumps when webcams are plugged in or removed (the window refreshes)
+        self.camera_lost = False             # the webcam stopped delivering (unplugged, or taken by another app)
+        self._lost_since = 0.0
         idx, self.camera_name = vcamlib.resolve_camera(cfg.camera_name, cfg.camera_index)
-        self.camera = Camera(idx, cfg.width, cfg.height, cfg.fps)
-        if (cfg.camera_name, cfg.camera_index) != (self.camera_name, idx):
-            cfg.camera_name, cfg.camera_index = self.camera_name, idx
-            cfg.save(config_path)
+        try:
+            self.camera = Camera(idx, cfg.width, cfg.height, cfg.fps)
+            if (cfg.camera_name, cfg.camera_index) != (self.camera_name, idx):
+                cfg.camera_name, cfg.camera_index = self.camera_name, idx
+                cfg.save(config_path)
+        except RuntimeError as e:   # no webcam plugged in (yet): start anyway; the watcher opens one when it appears
+            log.warning("No webcam at startup: %s", e)
+            self.camera = NoCamera()
+            self.camera_lost = True
+            self._lost_since = time.monotonic()
+            if not self._cams:
+                self.camera_name = cfg.camera_name or ""
         say("Connecting the virtual camera...", 0.6)
         self.output = Output(cfg, vcam)
         self.recorder = Recorder(cfg)
@@ -219,11 +233,92 @@ class Engine:
 
     # ---------- tray menu state (called from the tray thread) ----------
     def tray_cameras(self) -> list[str]:
-        now = time.monotonic()
-        if now - getattr(self, "_cams_at", -99) > 5:  # cache: menus rebuild often
+        # kept fresh by the camera watcher (every few seconds); refreshed here too if the watcher is behind
+        if time.monotonic() - self._cams_at > 10:
             self._cams = [n for _, n in vcamlib.real_cameras()]
-            self._cams_at = now
-        return self._cams
+            self._cams_at = time.monotonic()
+        return list(self._cams)
+
+    # ---------- webcams coming and going ----------
+    WATCH_EVERY = 3.0     # how often to look for plugged-in / removed webcams (s)
+    LOST_AFTER = 3.0      # no picture for this long = the webcam is gone
+
+    def _start_camera_watcher(self) -> None:
+        threading.Thread(target=self._watch_cameras, daemon=True, name="camera-watch").start()
+
+    def _watch_cameras(self) -> None:
+        """Background thread: notice webcams being plugged in or removed, and reconnect a lost one."""
+        while self.running:
+            time.sleep(self.WATCH_EVERY)
+            if not self.running:
+                break
+            try:
+                self._watch_once()
+            except Exception:  # noqa: BLE001 - never let the watcher die
+                log.exception("camera watcher")
+
+    def _watch_once(self) -> None:
+        names = [n for _, n in vcamlib.real_cameras()]
+        listed = bool(names) or not vcamlib.is_windows()
+        old = self._cams
+        self._cams, self._cams_at = names, time.monotonic()
+        if names != old:
+            self.cameras_seq += 1
+            added = [n for n in names if n not in old]
+            removed = [n for n in old if n not in names]
+            log.info("Webcams changed: +%s -%s", added, removed)
+            if added and not self.camera_lost:
+                self.notify(f"New camera connected: {added[0]} - choose it under Webcam to use it.", 8)
+        with self._cam_lock:
+            silent = self.camera.silent_for()
+            if not self.camera_lost and silent > self.LOST_AFTER:
+                self.camera_lost, self._lost_since = True, time.monotonic()
+                log.warning("Webcam %s stopped delivering (%.0f s)", self.camera_name, silent)
+                self.request("camera_lost")
+                return
+            if not self.camera_lost:
+                return
+            if silent < 1.0:   # it came back by itself
+                self._camera_back()
+                return
+            # Reconnect: the same webcam if it's back (its number may have changed), else - only if we never had
+            # one - the first webcam there is.
+            target = None
+            if self.camera_name and (self.camera_name in names or not listed):
+                target = self.camera_name
+            elif isinstance(self.camera, NoCamera) and names:
+                target = names[0]
+            if target is None:
+                return
+            idx, name = vcamlib.resolve_camera(target, self.cfg.camera_index)
+            if names and name != target:
+                return
+            try:
+                cam = Camera(idx, self.cfg.width, self.cfg.height, self.cfg.fps)
+            except RuntimeError:
+                return
+            deadline = time.monotonic() + 3
+            while cam.latest() is None and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if cam.latest() is None:
+                cam.close()
+                return
+            old, self.camera = self.camera, cam
+            old.close()
+            changed = name != self.camera_name
+            self.camera_name = name
+            if changed or (self.cfg.camera_name, self.cfg.camera_index) != (name, idx):
+                self.cfg.camera_name, self.cfg.camera_index = name, idx
+                self.cfg.save(self.config_path)
+            if changed:
+                self.request("camera_background")
+            self._camera_back()
+
+    def _camera_back(self) -> None:
+        self.camera_lost = False
+        self.cameras_seq += 1
+        log.info("Webcam %s is back", self.camera_name)
+        self.notify(f"Webcam connected: {self.camera_name}", 5)
 
     def tray_current_camera(self) -> str:
         return self.camera_name
@@ -260,22 +355,31 @@ class Engine:
         if match is None:
             self.notify(f"Camera not found: {name}")
             return
-        if match[1] == self.camera_name:
+        if match[1] == self.camera_name and not self.camera_lost:
             return
-        old = self.camera
-        try:
-            self.camera = Camera(match[0], self.cfg.width, self.cfg.height, self.cfg.fps)
-        except RuntimeError as e:
-            self.notify(str(e), 6)
-            return
-        old.close()
-        self.camera_name = match[1]
+        with self._cam_lock:
+            old = self.camera
+            try:
+                self.camera = Camera(match[0], self.cfg.width, self.cfg.height, self.cfg.fps)
+            except RuntimeError as e:
+                self.notify(str(e), 6)
+                return
+            old.close()
+            self.camera_name = match[1]
+            self.camera_lost = False
         self.cfg.camera_name, self.cfg.camera_index = match[1], match[0]
         self.cfg.save(self.config_path)
         self._load_background()
         tip = "" if self.background is not None else " - calibrate the silhouette for it"
         self.notify(f"Camera: {match[1]}{tip}", 6)
         log.info("Switched camera to %s (#%d)", match[1], match[0])
+
+    def _on_camera_lost(self) -> None:
+        """Engine thread: the webcam stopped. A recording can't continue; the LOOP, if on air, simply carries on."""
+        if self.recorder.state != State.IDLE or self.calibrator is not None:
+            self.cancel()   # a recording or calibration can't continue without a picture
+        where = " - your LOOP stays on air" if self.mode == "loop" else ""
+        self.notify(f"Webcam disconnected{where}. Plug it back in, or choose another under Webcam.", 10)
 
     # ---------- HappyHacks Virtual Camera (our camera driver) ----------
     def install_driver(self, ask: bool = False) -> None:
@@ -649,6 +753,10 @@ class Engine:
                 self.use_loop(arg)
             elif a.startswith("delete_loop:"):
                 self.delete_loop(arg)
+            elif a == "camera_lost":
+                self._on_camera_lost()
+            elif a == "camera_background":
+                self._load_background()
             elif a == "library_changed":
                 self.library_version += 1
             elif a == "mic_setting":
@@ -681,9 +789,13 @@ class Engine:
         frame_dt = 1.0 / self.cfg.fps
         next_t = time.monotonic()
         live = None
-        while live is None and self.running:
+        first_by = time.monotonic() + 4
+        while live is None and self.running and time.monotonic() < first_by:
             live = self.camera.latest()
             time.sleep(0.01)
+        if live is None:   # no webcam (yet): a calm placeholder until one is plugged in
+            live = placeholder(self.cfg.width, self.cfg.height, "No webcam connected - plug one in")
+        self._start_camera_watcher()
         try:
             while self.running:
                 fresh = self.camera.latest()
@@ -840,6 +952,9 @@ class Engine:
             self._draw_outlines(prev, live, self.player.first_frame if self.player else None)
         if self.cut.waiting:
             guides.banner(prev, f"Hold to sync - cutting when in sync ({int(self.sync * 100)}%)", brand.CV_VIOLET)
+        if self.camera_lost:
+            guides.banner(prev, "Webcam disconnected - plug it back in, or choose another under Webcam",
+                          brand.CV_DANGER)
         self._draw_on_air(prev)
         left = self.lic.remaining() if self.mode == "loop" else None
         if left is not None and left <= 30:

@@ -83,6 +83,15 @@ def show() -> None:
         _tk = None
 
 
+def dismiss_native() -> None:
+    """Close the packaged app's splash right away (for runs that open no window)."""
+    try:
+        import pyi_splash
+        pyi_splash.close()
+    except Exception:  # noqa: BLE001 - not a packaged build with a splash, or it's already closed
+        pass
+
+
 def status(text: str, progress: float | None = None) -> None:
     """Update the line under the logo ("Loading AI person detection...")."""
     try:

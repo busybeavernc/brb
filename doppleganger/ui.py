@@ -584,6 +584,9 @@ class MainWindow:
             self._refresh_library()
         if self.cam_var.get() != e.camera_name:
             self.cam_var.set(e.camera_name)
+        if getattr(self, "_cams_seq", None) != e.cameras_seq:   # a webcam was plugged in or removed
+            self._cams_seq = e.cameras_seq
+            self.cam_box["values"] = e.tray_cameras()
         msg = e.message
         if e.mic.is_muted:
             msg = (msg + "   ·   " if msg else "") + "Microphone muted while the LOOP is on air"

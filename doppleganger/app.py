@@ -45,6 +45,7 @@ def main() -> None:
                 cfg0.save(args.config)
         return
     if args.remove_camera:  # used by the uninstaller
+        splash.close()
         if vcamlib.installed_version() is not None:
             ok, detail = vcamlib.uninstall()
             log.info("Camera removal: %s (%s)", ok, detail)
