@@ -131,7 +131,7 @@ def _explain_vcam_error(backend: str, msg: str) -> str:
         if vcamlib.installed_version() is None:
             return f"The {vcamlib.CAMERA_NAME} isn't installed yet - install it in Settings (Windows asks once)"
         if "already in use" in m:
-            return "The HappyHacks Virtual Camera is in use by another copy of Doppleganger - close it"
+            return "The HappyHacks Virtual Camera is in use by another copy of BRB - close it"
         return f"HappyHacks Virtual Camera not available ({msg}) - reinstall it in Settings"
     if "not installed" in m:
         return ("No camera to send to - install the HappyHacks Virtual Camera (Settings) "
@@ -172,7 +172,7 @@ class Engine:
         say("Loading your loops...", 0.85)
         self.recorder.segmenter = self.seg
         self.mic = MicMuter()
-        # LOOP time: free hour per computer or a license key, leased from doppleganger.happyhacks.io
+        # LOOP time: free hour per computer or a license key, leased from brb.happyhacks.io
         self.lic = LicenseGate(cfg, lambda: cfg.save(config_path), updater.current_version())
         self.cut = CutController()
         self.mode = "live"
@@ -284,7 +284,7 @@ class Engine:
             return
         if ask and not self.ask(
                 "Add the HappyHacks Virtual Camera?",
-                "Doppleganger can add its own camera, named \"HappyHacks Virtual Camera\", that your meeting apps and "
+                "BRB can add its own camera, named \"HappyHacks Virtual Camera\", that your meeting apps and "
                 "browsers can use - no OBS Studio needed.\n\nWindows will ask for permission once.\n\n"
                 "Install it now?"):
             return
@@ -438,7 +438,7 @@ class Engine:
         if why:
             self._force_live(why)
         elif self.lic.warn_now():
-            self.notify("5 minutes of free LOOP time left - then Doppleganger cuts back to LIVE. "
+            self.notify("5 minutes of free LOOP time left - then BRB cuts back to LIVE. "
                         "Click Get License Key for unlimited use.", 12)
             log.info("Free LOOP time: 5 minutes left")
 

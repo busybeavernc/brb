@@ -41,7 +41,7 @@ def bundle_dir() -> str:
 
 
 def install_dir() -> str:
-    return os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"), "Doppleganger")
+    return os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"), "Doppleganger")   # kept from before the rename
 
 
 def bundled() -> bool:
@@ -154,7 +154,7 @@ class DopplegangerCamera:
         # framerate 0 = deliver each frame immediately; the app paces itself.
         self._cam = self._dll.scCreateCamera(width, height, 0.0)
         if not self._cam:
-            raise RuntimeError("the HappyHacks Virtual Camera is already in use by another copy of Doppleganger")
+            raise RuntimeError("the HappyHacks Virtual Camera is already in use by another copy of BRB")
         self.width, self.height = width, height
 
     def send(self, frame: np.ndarray) -> None:

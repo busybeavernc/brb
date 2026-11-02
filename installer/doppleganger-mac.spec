@@ -24,23 +24,23 @@ hidden += h
 a = Analysis([os.path.join(ROOT, "launcher.py")], pathex=[ROOT], binaries=binaries, datas=datas,
              hiddenimports=hidden, excludes=["pynput", "pystray"], noarchive=False)
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="Doppleganger", console=False,
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="BRB", console=False,
           argv_emulation=False, codesign_identity=None)
-coll = COLLECT(exe, a.binaries, a.datas, name="Doppleganger")
+coll = COLLECT(exe, a.binaries, a.datas, name="BRB")
 app = BUNDLE(
     coll,
-    name="Doppleganger.app",
-    icon=os.path.join(ROOT, "doppleganger", "assets", "icon.png"),
+    name="BRB.app",
+    icon=os.path.join(ROOT, "doppleganger", "assets", "icon.icns"),
     bundle_identifier="com.busybeavernc.doppleganger",
     version=VERSION,
     info_plist={
-        "CFBundleName": "Doppleganger",
-        "CFBundleDisplayName": "Doppleganger",
+        "CFBundleName": "BRB",
+        "CFBundleDisplayName": "BRB",
         "CFBundleShortVersionString": VERSION,
         "CFBundleVersion": VERSION,
         "LSMinimumSystemVersion": "12.0",
         "NSHighResolutionCapable": True,
-        "NSCameraUsageDescription": "Doppleganger shows your webcam and records your loop.",
+        "NSCameraUsageDescription": "BRB shows your webcam and records your loop.",
         "NSHumanReadableCopyright": "A seamless switch.",
     },
 )

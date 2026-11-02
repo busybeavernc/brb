@@ -21,7 +21,7 @@ class Camera:
             backend = cv2.CAP_ANY
         self.cap = cv2.VideoCapture(index, backend)
         if not self.cap.isOpened():
-            hint = (" On a Mac, allow Doppleganger in System Settings > Privacy & Security > Camera."
+            hint = (" On a Mac, allow BRB in System Settings > Privacy & Security > Camera."
                     if sys.platform == "darwin" else " Is another app using it?")
             raise RuntimeError(f"Could not open webcam #{index}.{hint}")
         if os.name == "nt":

@@ -57,6 +57,6 @@ def start_tray(request: Callable[[str], None], version: str, state=None):
         pystray.Menu.SEPARATOR,
         item("Quit", lambda: request("quit")),
     )
-    icon = pystray.Icon("Doppleganger", img, "Doppleganger", menu)
+    icon = pystray.Icon("BRB", img, "BRB", menu)
     icon.run_detached()
     return icon

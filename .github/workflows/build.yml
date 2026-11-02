@@ -4,13 +4,13 @@ name: Build
 # repositories have limited free Actions minutes (Mac machines count 10x):
 #   - GitHub > Actions > Build > "Run workflow", or
 #   - a push whose commit message contains [release]
-# A release builds Doppleganger and publishes vMAJOR.MINOR.<build #> with:
-#   DopplegangerSetup.exe       Windows installer (Start menu, uninstall entry, removes the camera on uninstall)
-#   Doppleganger.exe            the Windows app itself (installed copies update themselves from this)
+# A release builds BRB (formerly Doppleganger) and publishes vMAJOR.MINOR.<build #> with:
+#   BRBSetup.exe                Windows installer (Start menu, uninstall entry, removes the camera on uninstall)
+#   BRB.exe                     the Windows app itself (installed copies update themselves from this)
 #   doppleganger-publisher.cer  the public half of the self-signed code-signing certificate
-#   Doppleganger-mac-arm64.dmg  Mac (Apple Silicon) - drag to Applications; uses OBS Virtual Camera
-#   Doppleganger-mac-x86_64.dmg Mac (Intel)
-#   Doppleganger-mac-*.zip      the same apps, for the Mac's self-update
+#   BRB-mac-arm64.dmg           Mac (Apple Silicon) - drag to Applications; uses OBS Virtual Camera
+#   BRB-mac-x86_64.dmg          Mac (Intel)
+#   BRB-mac-*.zip               the same apps, for the Mac's self-update
 # Code signing runs when the SIGNING_CERT_PFX_BASE64 / SIGNING_CERT_PASSWORD secrets are set.
 on:
   push:
@@ -136,11 +136,11 @@ jobs:
       - name: Sign camera driver and helpers
         if: env.SIGN_PFX != ''
         shell: cmd
-        run: signtool sign /q /fd SHA256 /f "%SIGN_FILE%" /p "%SIGN_PASSWORD%" /tr http://timestamp.digicert.com /td SHA256 /d "Doppleganger" driver_build\doppleganger_cam64.dll driver_build\doppleganger_cam32.dll driver_build\listcams.exe driver_build\micmute.exe
+        run: signtool sign /q /fd SHA256 /f "%SIGN_FILE%" /p "%SIGN_PASSWORD%" /tr http://timestamp.digicert.com /td SHA256 /d "BRB" driver_build\doppleganger_cam64.dll driver_build\doppleganger_cam32.dll driver_build\listcams.exe driver_build\micmute.exe
 
-      - name: Build Doppleganger.exe
+      - name: Build BRB.exe
         run: >
-          pyinstaller --noconfirm --onefile --windowed --name Doppleganger
+          pyinstaller --noconfirm --onefile --windowed --name BRB
           --icon doppleganger/assets/icon.ico
           --splash doppleganger/assets/splash.png
           --add-data "doppleganger/assets;doppleganger/assets"
@@ -157,10 +157,10 @@ jobs:
           --hidden-import pystray._win32
           launcher.py
 
-      - name: Sign Doppleganger.exe
+      - name: Sign BRB.exe
         if: env.SIGN_PFX != ''
         shell: cmd
-        run: signtool sign /q /fd SHA256 /f "%SIGN_FILE%" /p "%SIGN_PASSWORD%" /tr http://timestamp.digicert.com /td SHA256 /d "Doppleganger" dist\Doppleganger.exe
+        run: signtool sign /q /fd SHA256 /f "%SIGN_FILE%" /p "%SIGN_PASSWORD%" /tr http://timestamp.digicert.com /td SHA256 /d "BRB" dist\BRB.exe
 
       - name: Build installer
         shell: pwsh
@@ -173,7 +173,7 @@ jobs:
       - name: Sign installer
         if: env.SIGN_PFX != ''
         shell: cmd
-        run: signtool sign /q /fd SHA256 /f "%SIGN_FILE%" /p "%SIGN_PASSWORD%" /tr http://timestamp.digicert.com /td SHA256 /d "Doppleganger Setup" dist\DopplegangerSetup.exe
+        run: signtool sign /q /fd SHA256 /f "%SIGN_FILE%" /p "%SIGN_PASSWORD%" /tr http://timestamp.digicert.com /td SHA256 /d "BRB Setup" dist\BRBSetup.exe
 
       - name: Remove signing certificate
         if: always() && env.SIGN_PFX != ''
@@ -184,8 +184,8 @@ jobs:
         with:
           name: windows
           path: |
-            dist/Doppleganger.exe
-            dist/DopplegangerSetup.exe
+            dist/BRB.exe
+            dist/BRBSetup.exe
 
   mac:
     # Mac builds only when asked: "Run workflow" with "Also build the Mac apps" ticked, or [mac] in the commit message
@@ -225,30 +225,30 @@ jobs:
           echo "VERSION = \"$v\"" > doppleganger/_build.py
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
-      - name: Build Doppleganger.app
+      - name: Build BRB.app
         env:
           DOPPLEGANGER_VERSION: ${{ steps.ver.outputs.version }}
         run: pyinstaller --noconfirm installer/doppleganger-mac.spec
 
       - name: Self-test the app
-        run: dist/Doppleganger.app/Contents/MacOS/Doppleganger --selftest
+        run: dist/BRB.app/Contents/MacOS/BRB --selftest
 
       - name: Sign (ad hoc), zip and make the disk image
         run: |
-          codesign --force --deep --sign - dist/Doppleganger.app
-          codesign --verify --deep dist/Doppleganger.app
-          name=Doppleganger-mac-${{ matrix.arch }}
-          ditto -c -k --keepParent dist/Doppleganger.app "dist/$name.zip"
-          mkdir dmg && cp -R dist/Doppleganger.app dmg/ && ln -s /Applications dmg/Applications
-          hdiutil create -volname Doppleganger -srcfolder dmg -ov -format UDZO "dist/$name.dmg"
+          codesign --force --deep --sign - dist/BRB.app
+          codesign --verify --deep dist/BRB.app
+          name=BRB-mac-${{ matrix.arch }}
+          ditto -c -k --keepParent dist/BRB.app "dist/$name.zip"
+          mkdir dmg && cp -R dist/BRB.app dmg/ && ln -s /Applications dmg/Applications
+          hdiutil create -volname BRB -srcfolder dmg -ov -format UDZO "dist/$name.dmg"
           ls -la dist
 
       - uses: actions/upload-artifact@v4
         with:
           name: mac-${{ matrix.arch }}
           path: |
-            dist/Doppleganger-mac-${{ matrix.arch }}.dmg
-            dist/Doppleganger-mac-${{ matrix.arch }}.zip
+            dist/BRB-mac-${{ matrix.arch }}.dmg
+            dist/BRB-mac-${{ matrix.arch }}.zip
 
   # Windows is released as soon as it's built; the Mac files are added to the same release
   # when they're ready (Mac build machines can sit in GitHub's queue for a while).
@@ -272,16 +272,16 @@ jobs:
         run: |
           base=$(python3 -c "import re;print('.'.join(re.search(r'\"(\d+)\.(\d+)', open('doppleganger/__init__.py').read()).groups()))")
           v="$base.$(( ${{ github.run_number }} + BUILD_OFFSET ))"
-          notes="**Download:** https://doppleganger.happyhacks.io/ (picks the right file for your computer).
+          notes="**Download:** https://brb.happyhacks.io/ (picks the right file for your computer).
 
-          **Windows:** DopplegangerSetup.exe. **Mac:** Doppleganger-mac-arm64.dmg (Apple Silicon) or Doppleganger-mac-x86_64.dmg (Intel) when this release includes them (otherwise the download page offers the latest Mac version); needs [OBS Studio](https://obsproject.com/download) 30+.
+          **Windows:** BRBSetup.exe. **Mac:** BRB-mac-arm64.dmg (Apple Silicon) or BRB-mac-x86_64.dmg (Intel) when this release includes them (otherwise the download page offers the latest Mac version); needs [OBS Studio](https://obsproject.com/download) 30+.
 
           $(git log -1 --pretty=%s)"
-          files="artifacts/DopplegangerSetup.exe artifacts/Doppleganger.exe installer/doppleganger-publisher.cer"
-          gh release create "v$v" $files --title "Doppleganger $v" --notes "$notes" --target "$GITHUB_SHA" --latest
+          files="artifacts/BRBSetup.exe artifacts/BRB.exe installer/doppleganger-publisher.cer"
+          gh release create "v$v" $files --title "BRB $v" --notes "$notes" --target "$GITHUB_SHA" --latest
           if [ -n "$PUBLIC_TOKEN" ]; then
             GH_TOKEN="$PUBLIC_TOKEN" gh release create "v$v" $files -R "$PUBLIC_REPO" \
-              --title "Doppleganger $v" --notes "$notes" --latest
+              --title "BRB $v" --notes "$notes" --latest
           else
             echo "::warning::PUBLIC_RELEASES_TOKEN not set - release published to this repo only"
           fi

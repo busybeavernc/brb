@@ -1,4 +1,4 @@
-"""Licensing: free LOOP time and license keys, checked with doppleganger.happyhacks.io.
+"""Licensing: free LOOP time and license keys, checked with brb.happyhacks.io.
 
   - Every computer gets some free LOOP time in total (1 hour); a license key means unlimited.
   - Time counts only while the LOOP is on air. The server keeps the count, per computer (device.py), so reinstalling
@@ -26,7 +26,7 @@ from . import device
 
 log = logging.getLogger("doppleganger")
 
-SERVER = "https://doppleganger.happyhacks.io"
+SERVER = "https://brb.happyhacks.io"
 STATUS_EVERY = 300.0    # recheck the license this often (s)
 RENEW_BEFORE = 15.0     # renew a lease when this little of it is left (s)
 START_GRACE = 8.0       # after cutting to the LOOP, the server must answer within this (s)
@@ -100,7 +100,7 @@ class LicenseGate:
     def can_start(self) -> tuple[bool, str]:
         """May the LOOP go on air now? -> (yes, why not)."""
         if not self.known:
-            return False, ("Doppleganger needs an internet connection to check your license before using the LOOP."
+            return False, ("BRB needs an internet connection to check your license before using the LOOP."
                            if not self.online and self._last_status else "Checking your license - one moment.")
         if self.unlimited:
             return True, ""
@@ -123,9 +123,9 @@ class LicenseGate:
         if self.lease_until and now >= self.lease_until and not self.unlimited and self.free_left <= 0.5:
             return "Your free LOOP time is used up."
         if self.lease_until and now >= self.lease_until + 2:
-            return "Lost the connection to doppleganger.happyhacks.io - the LOOP needs internet."
+            return "Lost the connection to brb.happyhacks.io - the LOOP needs internet."
         if not self.lease_until and self.started_at and now - self.started_at > START_GRACE:
-            return self.message or "Couldn't reach doppleganger.happyhacks.io - the LOOP needs internet."
+            return self.message or "Couldn't reach brb.happyhacks.io - the LOOP needs internet."
         return ""
 
     def warn_now(self) -> bool:
@@ -230,7 +230,7 @@ class LicenseGate:
                 code, data = self._post("/api/v1/license/lease", self._body(action=action))
         except (urllib.error.URLError, OSError, ValueError) as e:
             self.online = False
-            self.message = "Can't reach doppleganger.happyhacks.io - the LOOP needs an internet connection."
+            self.message = "Can't reach brb.happyhacks.io - the LOOP needs an internet connection."
             log.info("license server unreachable: %s", e)
             return
         self.online = True

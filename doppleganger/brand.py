@@ -1,30 +1,45 @@
-"""Doppleganger brand: "A seamless switch."
+"""BRB (Be Right Back) brand: "Need a moment? Be right back."
 
 Palette (from the brand sheet):
-  Midnight #111827   Violet #7C3AED   Aqua #2DD4BF   Cloud #F8FAFC
-Usage: LIVE = Aqua, LOOP = Violet. The cut button wears the colour of where you're cutting TO.
+  Deep Teal #244B4B   Eucalyptus #8FB9AA   Apricot #EAB394   Ivory #FAF8F3
+Usage: LIVE = Eucalyptus, LOOP = Apricot, with Deep Teal text. The cut button wears the colour of where you're cutting TO.
+The names below are the app's roles (kept from the first brand): MIDNIGHT is the window background, CLOUD the text,
+AQUA the LIVE colour, VIOLET the LOOP colour.
 """
 from __future__ import annotations
 
 import os
 import sys
 
-TAGLINE = "A seamless switch."
+TAGLINE = "Need a moment? Be right back."
+APP_NAME = "BRB"
+APP_LONG = "BRB - Be Right Back"
 
-MIDNIGHT = "#111827"
-VIOLET = "#7C3AED"
-AQUA = "#2DD4BF"
-CLOUD = "#F8FAFC"
+TEAL = "#244B4B"
+EUCALYPTUS = "#8FB9AA"
+APRICOT = "#EAB394"
+IVORY = "#FAF8F3"
+
+MIDNIGHT = IVORY          # window background
+CLOUD = TEAL              # text
+INK = "#1D3D3D"           # text on coloured chips (LIVE / LOOP / warnings)
+AQUA = EUCALYPTUS         # LIVE
+VIOLET = APRICOT          # LOOP
 
 # supporting shades (derived)
-SURFACE = "#1A2233"       # panels on Midnight
-SURFACE_HI = "#243049"    # hover / selected
-BORDER = "#2C3852"
-MUTED = "#94A3B8"
-VIOLET_DARK = "#5B21B6"
-AQUA_DARK = "#0F766E"
-AMBER = "#F59E0B"         # glitch / warnings (functional, not a brand colour)
-DANGER = "#F87171"
+SURFACE = "#FFFFFF"       # buttons, fields, lists on Ivory
+SURFACE_HI = "#E7F0EC"    # hover / selected (a touch of Eucalyptus)
+BORDER = "#D8D1C5"
+MUTED = "#6B807C"
+VIOLET_DARK = "#D99A74"
+AQUA_DARK = "#5E9A86"
+TEAL_DARK = "#1A3838"
+AMBER = "#F0BE5A"         # glitch / warnings (functional, not a brand colour)
+DANGER = "#E07A6E"
+# coloured text on Ivory (the chip colours above are too light for text)
+OK_TEXT = "#2F7A64"
+WARN_TEXT = "#9A6212"
+BAD_TEXT = "#B5443A"
 
 
 def bgr(hex_color: str) -> tuple[int, int, int]:
@@ -34,14 +49,15 @@ def bgr(hex_color: str) -> tuple[int, int, int]:
     return b, g, r
 
 
-# OpenCV colours for the preview overlays
-CV_AQUA = bgr(AQUA)
-CV_VIOLET = bgr(VIOLET)
-CV_VIOLET_DARK = bgr(VIOLET_DARK)
-CV_AQUA_DARK = bgr(AQUA_DARK)
-CV_AMBER = bgr(AMBER)
-CV_MIDNIGHT = bgr(MIDNIGHT)
-CV_DANGER = bgr(DANGER)
+# OpenCV colours for the preview overlays: deeper versions of the brand colours, so white text and thin outlines
+# stand out on video
+CV_AQUA = bgr("#4FA387")          # LIVE
+CV_VIOLET = bgr("#D9814F")        # LOOP
+CV_VIOLET_DARK = bgr("#B5643A")
+CV_AQUA_DARK = bgr("#2F7A64")
+CV_AMBER = bgr("#D99A2B")
+CV_MIDNIGHT = bgr(TEAL)           # dark tracks / panels on video
+CV_DANGER = bgr("#D2544A")
 
 
 def asset(name: str) -> str:

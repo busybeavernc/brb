@@ -16,7 +16,8 @@ import cv2
 from PIL import Image, ImageTk
 
 from . import brand, library, macos, updater, winutil
-from .brand import AMBER, AQUA, BORDER, CLOUD, DANGER, MIDNIGHT, MUTED, SURFACE, SURFACE_HI, VIOLET, VIOLET_DARK
+from .brand import (AMBER, AQUA, BAD_TEXT, BORDER, CLOUD, DANGER, INK, IVORY, MIDNIGHT, MUTED, OK_TEXT, SURFACE, SURFACE_HI,
+                    TEAL, TEAL_DARK, VIOLET, VIOLET_DARK, WARN_TEXT)
 from .cutcontrol import SYNC_THRESHOLD
 from .license import WARN_AT, format_left
 from .recorder import State
@@ -70,7 +71,7 @@ def set_text_scale(scale: float) -> None:
     for (size, _w), f in _fonts.items():
         f.configure(size=_scaled(size))
 MODE_BG = {"live": AQUA, "loop": VIOLET, "glitch": AMBER}
-MODE_FG = {"live": MIDNIGHT, "loop": CLOUD, "glitch": MIDNIGHT}
+MODE_FG = {"live": INK, "loop": INK, "glitch": INK}
 
 
 def _photo(path: str, width: int | None = None, bg: str = MIDNIGHT) -> ImageTk.PhotoImage:
@@ -92,8 +93,8 @@ def apply_theme(root: tk.Misc) -> None:
     s.theme_use("clam")
     base = F(10)
     s.configure(".", background=MIDNIGHT, foreground=CLOUD, fieldbackground=SURFACE, bordercolor=BORDER,
-                lightcolor=SURFACE, darkcolor=SURFACE, troughcolor=SURFACE, focuscolor=VIOLET,
-                selectbackground=VIOLET, selectforeground=CLOUD, font=base, insertcolor=CLOUD)
+                lightcolor=SURFACE, darkcolor=SURFACE, troughcolor=SURFACE, focuscolor=TEAL,
+                selectbackground=TEAL, selectforeground=IVORY, font=base, insertcolor=CLOUD)
     s.configure("TFrame", background=MIDNIGHT)
     s.configure("TLabel", background=MIDNIGHT, foreground=CLOUD)
     s.configure("Small.TLabel", font=F(9), foreground=MUTED)
@@ -110,26 +111,28 @@ def apply_theme(root: tk.Misc) -> None:
     s.configure("Tool.TMenubutton", background=SURFACE, foreground=CLOUD, bordercolor=SURFACE, padding=(10, 4),
                 lightcolor=SURFACE, darkcolor=SURFACE, arrowcolor=CLOUD, relief="flat")
     s.map("Tool.TMenubutton", background=[("pressed", BORDER), ("active", SURFACE_HI)])
-    s.configure("Accent.TButton", background=VIOLET, foreground=CLOUD, bordercolor=VIOLET,
-                lightcolor=VIOLET, darkcolor=VIOLET, focuscolor=VIOLET)
-    s.map("Accent.TButton", background=[("pressed", VIOLET_DARK), ("active", "#8B5CF6")])
+    s.configure("Accent.TButton", background=TEAL, foreground=IVORY, bordercolor=TEAL,
+                lightcolor=TEAL, darkcolor=TEAL, focuscolor=TEAL)
+    s.map("Accent.TButton", background=[("pressed", TEAL_DARK), ("active", TEAL_DARK)], foreground=[("disabled", BORDER)])
     s.configure("TCheckbutton", background=MIDNIGHT, foreground=CLOUD, indicatorbackground=SURFACE,
                 indicatorforeground=CLOUD, indicatorcolor=SURFACE, focuscolor=MIDNIGHT)
-    s.map("TCheckbutton", indicatorcolor=[("selected", VIOLET)], background=[("active", MIDNIGHT)])
+    s.map("TCheckbutton", indicatorcolor=[("selected", TEAL)], indicatorforeground=[("selected", IVORY)],
+          background=[("active", MIDNIGHT)])
     s.configure("TCombobox", fieldbackground=SURFACE, background=SURFACE, foreground=CLOUD, arrowcolor=CLOUD,
                 bordercolor=BORDER, lightcolor=SURFACE, darkcolor=SURFACE, padding=(8, 5))
     s.map("TCombobox", fieldbackground=[("readonly", SURFACE)], foreground=[("readonly", CLOUD)],
           selectbackground=[("readonly", SURFACE)], selectforeground=[("readonly", CLOUD)])
     s.configure("Vertical.TScrollbar", background=SURFACE_HI, troughcolor=MIDNIGHT, bordercolor=MIDNIGHT,
                 arrowcolor=CLOUD, lightcolor=SURFACE_HI, darkcolor=SURFACE_HI, gripcount=0)
-    s.map("Vertical.TScrollbar", background=[("active", VIOLET), ("pressed", VIOLET)])
+    s.map("Vertical.TScrollbar", background=[("active", AQUA), ("pressed", AQUA)])
     for st in ("TEntry", "TSpinbox"):
         s.configure(st, fieldbackground=SURFACE, background=SURFACE, foreground=CLOUD, insertcolor=CLOUD,
                     bordercolor=BORDER, lightcolor=SURFACE, darkcolor=SURFACE, arrowcolor=CLOUD, padding=(6, 4))
         s.map(st, fieldbackground=[("disabled", MIDNIGHT)], foreground=[("disabled", MUTED)])
     root.option_add("*TCombobox*Listbox.background", SURFACE)
     root.option_add("*TCombobox*Listbox.foreground", CLOUD)
-    root.option_add("*TCombobox*Listbox.selectBackground", VIOLET)
+    root.option_add("*TCombobox*Listbox.selectBackground", SURFACE_HI)
+    root.option_add("*TCombobox*Listbox.selectForeground", CLOUD)
     root.option_add("*TCombobox*Listbox.font", base)
     s.configure("Sync.Horizontal.TProgressbar", troughcolor=SURFACE, background=VIOLET, bordercolor=SURFACE,
                 lightcolor=VIOLET, darkcolor=VIOLET, thickness=8)
@@ -138,13 +141,13 @@ def apply_theme(root: tk.Misc) -> None:
     s.configure("Treeview", background=SURFACE, fieldbackground=SURFACE, foreground=CLOUD, bordercolor=BORDER,
                 lightcolor=SURFACE, darkcolor=SURFACE, rowheight=62)
     s.map("Treeview", background=[("selected", SURFACE_HI)], foreground=[("selected", CLOUD)])
-    s.configure("TScale", background=VIOLET, troughcolor=SURFACE, bordercolor=SURFACE,
-                lightcolor=VIOLET, darkcolor=VIOLET)
+    s.configure("TScale", background=TEAL, troughcolor=SURFACE_HI, bordercolor=BORDER,
+                lightcolor=TEAL, darkcolor=TEAL)
     s.configure("TSeparator", background=BORDER)
     s.configure("TLabelframe", background=MIDNIGHT, bordercolor=BORDER, lightcolor=MIDNIGHT, darkcolor=MIDNIGHT)
     s.configure("TLabelframe.Label", background=MIDNIGHT, foreground=MUTED, font=F(9, "bold"))
-    s.configure("Vertical.TScrollbar", background=SURFACE, troughcolor=MIDNIGHT, bordercolor=MIDNIGHT,
-                arrowcolor=MUTED, lightcolor=SURFACE, darkcolor=SURFACE)
+    s.configure("Vertical.TScrollbar", background=BORDER, troughcolor=MIDNIGHT, bordercolor=MIDNIGHT,
+                arrowcolor=MUTED, lightcolor=BORDER, darkcolor=BORDER)
 
 
 class HoldButton(tk.Label):
@@ -152,7 +155,7 @@ class HoldButton(tk.Label):
     It wears the colour of where you're cutting TO: Violet = to the loop, Aqua = to live."""
 
     def __init__(self, master, engine, font_size=15, **kw):
-        super().__init__(master, text="CUT", fg=CLOUD, bg=VIOLET, cursor="hand2",
+        super().__init__(master, text="CUT", fg=INK, bg=VIOLET, cursor="hand2",
                          font=F(font_size, "bold"), padx=10, pady=12, **kw)
         self.e = engine
         self.bind("<ButtonPress-1>", lambda _e: self.e.request("cut_press"))
@@ -165,12 +168,12 @@ class HoldButton(tk.Label):
             text, bg, fg = (f"STITCHING {pct}%" if short else f"STITCHING NEW LOOP...  {pct}%"), SURFACE, MUTED
         elif e.cut.waiting:
             text = f"SYNC {int(e.sync * 100)}%" if short else f"WAITING FOR SYNC  {int(e.sync * 100)}%"
-            bg, fg = SURFACE_HI, AQUA
+            bg, fg = SURFACE_HI, OK_TEXT
         elif e.mode == "loop":
-            text, bg, fg = "CUT TO LIVE", AQUA, MIDNIGHT
+            text, bg, fg = "CUT TO LIVE", AQUA, INK
         else:
             ready = e.player is not None
-            text, bg, fg = "CUT TO LOOP", (VIOLET if ready else SURFACE), (CLOUD if ready else MUTED)
+            text, bg, fg = "CUT TO LOOP", (VIOLET if ready else SURFACE), (INK if ready else MUTED)
         if self.cget("text") != text:
             self.configure(text=text)
         if self.cget("bg") != bg or self.cget("fg") != fg:
@@ -183,7 +186,7 @@ class MainWindow:
         self.cfg = engine.cfg
         self._start_minimized = minimized
         self.root = tk.Tk()
-        self.root.title("Doppleganger")
+        self.root.title("BRB")
         self.root.geometry("1280x760")
         self.root.minsize(980, 620)
         try:
@@ -229,7 +232,7 @@ class MainWindow:
         for text, cmd in (("Settings", self.open_settings), ("Setup Guide", self.open_wizard)):
             ttk.Button(bar, text=text, style="Tool.TButton", command=cmd).pack(side="left", padx=(0, 4))
         view = ttk.Menubutton(bar, text="View", style="Tool.TMenubutton", width=6)
-        self.view_menu = tk.Menu(view, tearoff=0, bg=SURFACE, fg=CLOUD, activebackground=VIOLET,
+        self.view_menu = tk.Menu(view, tearoff=0, bg=SURFACE, fg=CLOUD, activebackground=SURFACE_HI,
                                  activeforeground=CLOUD, font=F(10))
         self.v_view = tk.StringVar(value="normal")
         self.view_menu.add_radiobutton(label="Normal", value="normal", variable=self.v_view, command=self.show_main)
@@ -271,9 +274,9 @@ class MainWindow:
         # --- status ---
         top = ttk.Frame(side)
         top.grid(sticky="ew")
-        self.state_lbl = tk.Label(top, text="LIVE", fg=MIDNIGHT, bg=AQUA, font=F(15, "bold"), width=7, pady=3)
+        self.state_lbl = tk.Label(top, text="LIVE", fg=INK, bg=AQUA, font=F(15, "bold"), width=7, pady=3)
         self.state_lbl.pack(side="left")
-        self.glitch_lbl = tk.Label(top, text="GLITCH", fg=MIDNIGHT, bg=AMBER, font=F(10, "bold"),
+        self.glitch_lbl = tk.Label(top, text="GLITCH", fg=INK, bg=AMBER, font=F(10, "bold"),
                                    padx=8, pady=6)
         self.out_lbl = ttk.Label(side, text="", style="Small.TLabel", wraplength=px(300), justify="left")
         self.out_lbl.grid(sticky="w", pady=(6, 0))
@@ -296,7 +299,7 @@ class MainWindow:
         self.sync_pct = ttk.Label(syncrow, text="0%", width=5, anchor="e", style="Small.TLabel")
         self.sync_pct.grid(row=0, column=2)
         self.v_outlines = tk.BooleanVar(value=self.cfg.show_outlines)
-        ttk.Checkbutton(side, text="Outlines: you (aqua) · loop (violet)   O", variable=self.v_outlines,
+        ttk.Checkbutton(side, text="Outlines: you (green) · loop (apricot)   O", variable=self.v_outlines,
                         command=lambda: self.e.request("outlines")).grid(sticky="w", pady=(6, 0))
 
         # --- cut ---
@@ -335,7 +338,7 @@ class MainWindow:
         lh = ttk.Frame(side)
         lh.grid(sticky="ew", pady=(12, 4))
         ttk.Label(lh, text="Loops", style="Head.TLabel").pack(side="left")
-        self.light_lbl = ttk.Label(lh, text="", style="Small.TLabel", foreground=AMBER)
+        self.light_lbl = ttk.Label(lh, text="", style="Small.TLabel", foreground=WARN_TEXT)
         self.light_lbl.pack(side="right")
         self.tree = ttk.Treeview(side, show="tree", height=3, selectmode="browse")
         self.tree.column("#0", width=300)
@@ -538,9 +541,9 @@ class MainWindow:
         if e.recorder.state == State.RECORDING:   # recording: a red REC badge with the time, hard to miss
             el, tot = int(e.recorder.elapsed), int(e.cfg.loop_seconds)
             self.state_lbl.configure(text=f"● REC {el // 60}:{el % 60:02d} / {tot // 60}:{tot % 60:02d}",
-                                     bg=DANGER, fg=MIDNIGHT, width=0)
+                                     bg=DANGER, fg=INK, width=0)
         elif e.recorder.state == State.COUNTDOWN:
-            self.state_lbl.configure(text="● REC starting...", bg=DANGER, fg=MIDNIGHT, width=0)
+            self.state_lbl.configure(text="● REC starting...", bg=DANGER, fg=INK, width=0)
         else:
             self.state_lbl.configure(text=mode.upper(), bg=MODE_BG[mode], fg=MODE_FG[mode], width=7)
         if e.glitch.active and not self.glitch_lbl.winfo_ismapped():
@@ -551,15 +554,15 @@ class MainWindow:
         insync = e.sync >= SYNC_THRESHOLD
         self.sync_bar.configure(value=pct, style="InSync.Horizontal.TProgressbar" if insync
                                 else "Sync.Horizontal.TProgressbar")
-        self.sync_pct.configure(text=f"{pct}%", foreground=AQUA if insync else MUTED)
+        self.sync_pct.configure(text=f"{pct}%", foreground=OK_TEXT if insync else MUTED)
         self.cut_btn.refresh()
         o = e.output
         if o.connected:
             name = "HappyHacks Virtual Camera" if o.backend == "doppleganger" else "OBS Virtual Camera"
             self.out_lbl.configure(text=f"● Sending to {name}" + ("  ·  in use" if o.viewer_connected else ""),
-                                   foreground=AQUA)
+                                   foreground=OK_TEXT)
         else:
-            self.out_lbl.configure(text=f"● Not sending to your meeting: {o.error}", foreground=DANGER)
+            self.out_lbl.configure(text=f"● Not sending to your meeting: {o.error}", foreground=BAD_TEXT)
         if IS_MAC:
             need = not self.obs["ready"] and not o.connected
             if need:
@@ -585,7 +588,7 @@ class MainWindow:
         if e.mic.is_muted:
             msg = (msg + "   ·   " if msg else "") + "Microphone muted while the LOOP is on air"
         if IS_MAC and getattr(e, "_hk", None) is None and not msg:
-            msg = "Hotkeys are off: allow Input Monitoring (Setup guide > Allow Doppleganger on your Mac)"
+            msg = "Hotkeys are off: allow Input Monitoring (Setup guide > Allow BRB on your Mac)"
         self.status.configure(text=msg)
 
     def _refresh_busy(self) -> None:
@@ -625,9 +628,9 @@ class MainWindow:
         if left is not None and left <= WARN_AT and (on_air or left <= 0.5):
             text = (f"⏱ {format_left(left)} of free LOOP time left" if left > 0.5 else
                     "Free LOOP time used up - get a license key for unlimited use")
-            self.lic_lbl.configure(text=text, fg=DANGER if left <= 30 else AMBER, font=F(10, "bold"))
+            self.lic_lbl.configure(text=text, fg=BAD_TEXT if left <= 30 else WARN_TEXT, font=F(10, "bold"))
         else:
-            self.lic_lbl.configure(text=lic.summary(), fg=AQUA if lic.unlimited else MUTED, font=F(9))
+            self.lic_lbl.configure(text=lic.summary(), fg=OK_TEXT if lic.unlimited else MUTED, font=F(9))
         if lic.unlimited and self.lic_btn.winfo_ismapped():
             self.lic_btn.pack_forget()
         elif not lic.unlimited and lic.known and not self.lic_btn.winfo_ismapped():
@@ -699,7 +702,7 @@ class MainWindow:
     # ---------- lifecycle ----------
     def on_close(self, force: bool = False) -> None:
         if not force and self.e.mode == "loop" and not messagebox.askyesno(
-                "Quit Doppleganger?", "The LOOP is on air. Quitting stops the picture your meeting sees.\n\nQuit?",
+                "Quit BRB?", "The LOOP is on air. Quitting stops the picture your meeting sees.\n\nQuit?",
                 parent=self.root):
             return
         self.e.stop()
@@ -814,7 +817,7 @@ class ScrollArea(tk.Frame):
 
 
 EULA_VERSION = "1"   # bump when assets/EULA.md changes in a way people must accept again
-EULA_URL = "https://doppleganger.happyhacks.io/eula"
+EULA_URL = "https://brb.happyhacks.io/eula"
 
 
 def eula_text() -> str:
@@ -836,14 +839,14 @@ class EulaDialog:
     def __init__(self, main: "MainWindow"):
         self.main = main
         self.win = tk.Toplevel(main.root)
-        self.win.title("Doppleganger license agreement")
+        self.win.title("BRB license agreement")
         self.win.configure(bg=MIDNIGHT)
         self.win.transient(main.root)
         self.win.protocol("WM_DELETE_WINDOW", self.decline)
         f = ttk.Frame(self.win, padding=(24, 18))
         f.pack(fill="both", expand=True)
-        ttk.Label(f, text="Welcome to Doppleganger!", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(f, text="Doppleganger lets you step away from a video meeting for a moment - a restroom break, a "
+        ttk.Label(f, text="Welcome to BRB!", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(f, text="BRB lets you step away from a video meeting for a moment - a restroom break, a "
                           "coffee refill, a knock at the door - without your camera going dark or distracting anyone. "
                           "Please be courteous and use it responsibly, following the rules of the meetings you join.",
                   wraplength=px(560), justify="left").pack(anchor="w", pady=(6, 4))
@@ -910,7 +913,7 @@ class RecordTipsDialog:
             head, body = head.replace("10 seconds", span), body.replace("10 seconds", span)
             row = ttk.Frame(f)
             row.pack(fill="x", pady=4)
-            tk.Label(row, text=str(i), width=2, bg=VIOLET, fg=CLOUD, font=F(10, "bold")).pack(
+            tk.Label(row, text=str(i), width=2, bg=VIOLET, fg=INK, font=F(10, "bold")).pack(
                 side="left", anchor="n", padx=(0, 10), ipady=1)
             col = ttk.Frame(row)
             col.pack(side="left", fill="x")
@@ -969,19 +972,19 @@ class LicenseDialog:
         self.lic = main.e.lic
         self.alive = True
         self.win = tk.Toplevel(main.root)
-        self.win.title("Doppleganger license")
+        self.win.title("BRB license")
         self.win.resizable(False, False)
         self.win.configure(bg=MIDNIGHT)
         self.win.transient(main.root)
         self.win.protocol("WM_DELETE_WINDOW", self.close)
         f = ttk.Frame(self.win, padding=(26, 20))
         f.pack()
-        ttk.Label(f, text="Doppleganger license", style="Title.TLabel").pack(anchor="w")
-        # Prices and offers come from doppleganger.happyhacks.io each time this opens (never stale in the app)
+        ttk.Label(f, text="BRB license", style="Title.TLabel").pack(anchor="w")
+        # Prices and offers come from brb.happyhacks.io each time this opens (never stale in the app)
         self.pitch_lbl = ttk.Label(f, text="Checking the latest prices and offers...", wraplength=px(440),
                                    justify="left")
         self.pitch_lbl.pack(anchor="w", pady=(6, 4))
-        self.offer_lbl = ttk.Label(f, text="", wraplength=px(440), justify="left", foreground=AQUA,
+        self.offer_lbl = ttk.Label(f, text="", wraplength=px(440), justify="left", foreground=OK_TEXT,
                                    font=F(10, "bold"))
         self.offer_lbl.pack(anchor="w")
         self.now_lbl = ttk.Label(f, text="", style="Small.TLabel")
@@ -1024,7 +1027,7 @@ class LicenseDialog:
 
     def _remove(self):
         if messagebox.askyesno("Remove license key?", "Remove the license key from this computer?\n\n"
-                               "Doppleganger goes back to free LOOP time. The key stays assigned to this computer; "
+                               "BRB goes back to free LOOP time. The key stays assigned to this computer; "
                                "to move it to another one, contact support.", parent=self.win):
             self.var.set("")
             self.lic.remove_key()
@@ -1039,15 +1042,15 @@ class LicenseDialog:
             self.pitch_lbl.configure(text=lic.pitch or "Unlimited Access: unlimited LOOP time, cancel any time.")
             self.offer_lbl.configure(text=lic.offer_text if lic.offer and not lic.unlimited else "")
         elif not lic.online and lic.message and self.pitch_lbl.cget("text").startswith("Checking"):
-            self.pitch_lbl.configure(text="Couldn't reach doppleganger.happyhacks.io for the latest prices. "
+            self.pitch_lbl.configure(text="Couldn't reach brb.happyhacks.io for the latest prices. "
                                           "Check your internet connection.")
         if self._applied:
             if lic.unlimited:
-                self.result.configure(text="✓ License applied. Unlimited LOOP time on this computer.", foreground=AQUA)
+                self.result.configure(text="✓ License applied. Unlimited LOOP time on this computer.", foreground=OK_TEXT)
             elif lic.key_problem:
-                self.result.configure(text=lic.key_problem, foreground=DANGER)
+                self.result.configure(text=lic.key_problem, foreground=BAD_TEXT)
             elif not lic.online and lic.message:
-                self.result.configure(text=lic.message, foreground=DANGER)
+                self.result.configure(text=lic.message, foreground=BAD_TEXT)
         if lic.key and not self.remove_btn.winfo_ismapped():
             self.remove_btn.pack(side="left")
         elif not lic.key and self.remove_btn.winfo_ismapped():
@@ -1064,7 +1067,7 @@ class BusyDialog:
 
     def __init__(self, parent: tk.Misc):
         self.win = tk.Toplevel(parent)
-        self.win.title("Doppleganger")
+        self.win.title("BRB")
         self.win.resizable(False, False)
         self.win.configure(bg=MIDNIGHT)
         self.win.transient(parent)
@@ -1105,7 +1108,7 @@ class SettingsWindow:
         self.cfg = main.cfg
         self.alive = True
         self.win = tk.Toplevel(main.root)
-        self.win.title("Doppleganger settings")
+        self.win.title("BRB settings")
         self.win.resizable(False, False)
         self.win.transient(main.root)
         self.win.configure(bg=MIDNIGHT)
@@ -1140,7 +1143,7 @@ class SettingsWindow:
         self.v_hide = tk.BooleanVar(value=self.cfg.hide_from_screen_share)
         ttk.Checkbutton(f, text="Mute my microphone while the LOOP is on air", variable=self.v_mute,
                         command=self._changed).grid(sticky="w")
-        ttk.Checkbutton(f, text="Hide Doppleganger's windows from screen sharing", variable=self.v_hide,
+        ttk.Checkbutton(f, text="Hide BRB's windows from screen sharing", variable=self.v_hide,
                         command=self._changed).grid(sticky="w")
 
         ttk.Label(f, text="Cuts & preview", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
@@ -1151,7 +1154,7 @@ class SettingsWindow:
         ttk.Checkbutton(f, text="Show alignment guides in the preview (G)", variable=self.v_guides,
                         command=self._changed).grid(sticky="w")
         self.v_outlines = tk.BooleanVar(value=self.cfg.show_outlines)
-        ttk.Checkbutton(f, text="Show live (aqua) and loop (violet) outlines (O)", variable=self.v_outlines,
+        ttk.Checkbutton(f, text="Show live (green) and loop (apricot) outlines (O)", variable=self.v_outlines,
                         command=self._changed).grid(sticky="w")
         self.v_tips = tk.BooleanVar(value=self.cfg.show_record_tips)
         ttk.Checkbutton(f, text="Show recording tips before each recording", variable=self.v_tips,
@@ -1185,7 +1188,7 @@ class SettingsWindow:
         if IS_MAC:
             mac_hk = ttk.Frame(f)
             mac_hk.grid(sticky="ew")
-            ttk.Label(mac_hk, text="Mac: needs Input Monitoring permission for Doppleganger.",
+            ttk.Label(mac_hk, text="Mac: needs Input Monitoring permission for BRB.",
                       style="Small.TLabel").pack(side="left")
             ttk.Button(mac_hk, text="Open settings", command=lambda: (
                 macos.request_input_monitoring(), macos.open_input_monitoring_settings())).pack(side="right")
@@ -1263,7 +1266,7 @@ class SettingsWindow:
         try:
             winutil.set_start_with_windows(self.v_startup.get())
         except OSError as ex:
-            messagebox.showerror("Doppleganger", f"Couldn't change the startup setting: {ex}", parent=self.win)
+            messagebox.showerror("BRB", f"Couldn't change the startup setting: {ex}", parent=self.win)
             self.v_startup.set(winutil.starts_with_windows())
 
     def _driver(self) -> None:
@@ -1324,7 +1327,7 @@ class MiniBar:
         self.thumb.grid(row=0, column=1)
         right = tk.Frame(f, bg=MIDNIGHT)
         right.grid(row=0, column=2, sticky="ns", padx=(10, 0))
-        self.state_lbl = tk.Label(right, text="LIVE", fg=MIDNIGHT, bg=AQUA, font=F(11, "bold"))
+        self.state_lbl = tk.Label(right, text="LIVE", fg=INK, bg=AQUA, font=F(11, "bold"))
         self.state_lbl.pack(fill="x")
         self.sync = ttk.Progressbar(right, maximum=100, length=150, style="Sync.Horizontal.TProgressbar")
         self.sync.pack(fill="x", pady=5)
@@ -1377,7 +1380,7 @@ class MiniBar:
         left = e.lic.remaining() if e.mode == "loop" else None
         label = mode.upper() + (f"  ·  {format_left(left)}" if left is not None and left <= WARN_AT else "")
         self.state_lbl.configure(text=label, bg=AMBER if left is not None and left <= WARN_AT else MODE_BG[mode],
-                                 fg=MIDNIGHT if left is not None and left <= WARN_AT else MODE_FG[mode])
+                                 fg=INK if left is not None and left <= WARN_AT else MODE_FG[mode])
         insync = e.sync >= SYNC_THRESHOLD
         self.sync.configure(value=int(e.sync * 100),
                             style="InSync.Horizontal.TProgressbar" if insync else "Sync.Horizontal.TProgressbar")
@@ -1403,7 +1406,7 @@ class Wizard:
                 s for s in self.STEPS if s not in ("welcome", "camera"))
         self._perm_checked = 0.0
         self.win = tk.Toplevel(main.root)
-        self.win.title("Doppleganger setup")
+        self.win.title("BRB setup")
         self.win.resizable(False, False)
         self.win.transient(main.root)
         self.win.configure(bg=MIDNIGHT)
@@ -1487,7 +1490,7 @@ class Wizard:
 
     def _page_welcome(self):
         tk.Label(self.body, image=self._logo, bg=MIDNIGHT).pack(anchor="w", pady=(4, 18))
-        self._para("Doppleganger records a short, seamless loop of you, then lets you switch between "
+        self._para("BRB records a short, seamless loop of you, then lets you switch between "
                    "that loop and your live webcam during a meeting, so you can step away for a moment "
                    "(a restroom break, a coffee refill) without your camera going dark and distracting everyone.")
         self._para("This guide takes about 2 minutes: add the camera, pick your webcam, "
@@ -1504,7 +1507,7 @@ class Wizard:
 
     def _page_camera_mac(self):
         self._title("1  Set up the OBS camera")
-        self._para("On a Mac, Doppleganger sends your picture to your meeting app through the free OBS Virtual Camera. "
+        self._para("On a Mac, BRB sends your picture to your meeting app through the free OBS Virtual Camera. "
                    "OBS only has to be installed and set up once - it doesn't need to be open during meetings.")
         steps = ("Install OBS Studio 30 or newer.",
                  "Open OBS and click \"Start Virtual Camera\" (bottom right). When macOS asks, allow the "
@@ -1525,15 +1528,15 @@ class Wizard:
     def _page_permissions(self):
         self._title(f"{self.STEPS.index('permissions')}  Allow Doppleganger on your Mac")
         ttk.Label(self.body, text="macOS asks before an app may use your camera or notice your hotkeys. "
-                                  "Turn on Doppleganger in each list below - you only do this once.",
+                                  "Turn on BRB in each list below - you only do this once.",
                   wraplength=px(430), justify="left").pack(anchor="w", pady=(0, 10))
         self.perm_rows = {}
         for key, name, why, how, action in (
                 ("camera", "Camera", "Shows you in the preview and records your loop.",
-                 "Turn on the switch next to Doppleganger.", macos.open_camera_privacy_settings),
+                 "Turn on the switch next to BRB.", macos.open_camera_privacy_settings),
                 ("hotkeys", "Input Monitoring",
                  "Lets fn+F9 (cut) and fn+F10 (glitch) work while your meeting app is in front.",
-                 "Turn on Doppleganger (not listed? click +, then Applications > Doppleganger). "
+                 "Turn on BRB (not listed? click +, then Applications > BRB). "
                  "When macOS offers \"Quit & Reopen\", click it.",
                  lambda: (macos.request_input_monitoring(), macos.open_input_monitoring_settings()))):
             row = ttk.Frame(self.body)
@@ -1549,10 +1552,10 @@ class Wizard:
             btn = ttk.Button(row, text="Open Settings", command=action)
             btn.pack(side="right", anchor="n")
             self.perm_rows[key] = (state, hint, btn)
-        self.reopen_btn = ttk.Button(self.body, text="Reopen Doppleganger", style="Accent.TButton",
+        self.reopen_btn = ttk.Button(self.body, text="Reopen BRB", style="Accent.TButton",
                                      command=self._reopen)
-        ttk.Label(self.body, text="After an update, macOS may ask again (Doppleganger isn't signed by Apple yet). "
-                                  "If hotkeys stop working, switch Input Monitoring off and on for Doppleganger.",
+        ttk.Label(self.body, text="After an update, macOS may ask again (BRB isn't signed by Apple yet). "
+                                  "If hotkeys stop working, switch Input Monitoring off and on for BRB.",
                   style="Small.TLabel", wraplength=px(430), justify="left").pack(anchor="w", side="bottom")
         self._status()
         self._perm_checked = 0.0
@@ -1576,18 +1579,18 @@ class Wizard:
         marks = {"camera": cam == "allowed", "hotkeys": bool(mon) and hotkeys_running}
         for key, ok in marks.items():
             state, hint, btn = self.perm_rows[key]
-            state.configure(text="✓" if ok else "!", fg=AQUA if ok else AMBER)
+            state.configure(text="✓" if ok else "!", fg=OK_TEXT if ok else WARN_TEXT)
             if ok:
                 hint.pack_forget()
         need_reopen = bool(mon) and not hotkeys_running
         if need_reopen and not self.reopen_btn.winfo_ismapped():
             self.reopen_btn.pack(anchor="w", pady=(2, 0))
         if all(marks.values()):
-            txt, col = "✓ All set.", AQUA
+            txt, col = "✓ All set.", OK_TEXT
         elif need_reopen:
-            txt, col = "Input Monitoring is on - reopen Doppleganger so the hotkeys start working.", AMBER
+            txt, col = "Input Monitoring is on - reopen BRB so the hotkeys start working.", WARN_TEXT
         elif cam == "denied":
-            txt, col = "Camera is off for Doppleganger - turn it on, then reopen the app.", AMBER
+            txt, col = "Camera is off for BRB - turn it on, then reopen the app.", WARN_TEXT
         else:
             txt, col = "Waiting for the permissions above...", MUTED
         self.status.configure(text=txt, foreground=col)
@@ -1603,7 +1606,7 @@ class Wizard:
     def _page_calibrate(self):
         self._title(f"{self.STEPS.index('calibrate')}  Calibrate your silhouette")
         self._para("For about 10 seconds, keep facing the camera and lean or step slowly to the side the "
-                   "preview asks for. Doppleganger learns what your room looks like without you, so it can "
+                   "preview asks for. BRB learns what your room looks like without you, so it can "
                    "outline you precisely.")
         self._button("Start calibration", "calibrate")
         self._status()
@@ -1612,7 +1615,7 @@ class Wizard:
         self._title(f"{self.STEPS.index('record')}  Record your first loop")
         self._para("Sit as you would in a meeting. Hold still for the first 10 seconds, then look natural - "
                    "nod, blink, glance at the screen. In the last 10 seconds, step back into your silhouette "
-                   "until it glows aqua, and hold still.")
+                   "until it glows green, and hold still.")
         self.rec_button = ttk.Button(self.body, text="Start recording", style="Accent.TButton",
                                      command=lambda: self.e.request("record"))
         self.rec_button.pack(anchor="w", pady=(4, 0))
@@ -1629,7 +1632,7 @@ class Wizard:
             hk, gk = f"fn+{hk}", f"fn+{gk}"
         self._para(f"Tap {hk} to cut instantly. Hold {hk} and Doppleganger cuts by itself the moment you're in "
                    f"sync. {gk} plays a short glitch effect that gives you a few seconds to settle back in.")
-        self._para("While the loop is on air your microphone is muted, and Doppleganger never appears in "
+        self._para("While the loop is on air your microphone is muted, and BRB never appears in "
                    "screen shares. The Mini Bar keeps the controls beside your meeting.")
         if IS_MAC and macos.has_input_monitoring() is False:
             ttk.Button(self.body, text="Allow hotkeys while your meeting app is in front (Input Monitoring)",
@@ -1654,14 +1657,14 @@ class Wizard:
         if page == "camera" and IS_MAC:
             st = self.main.obs
             if e.output.connected:
-                txt, col = "✓ Ready - Doppleganger is sending to OBS Virtual Camera. Choose it in your meeting app.", AQUA
+                txt, col = "✓ Ready - BRB is sending to OBS Virtual Camera. Choose it in your meeting app.", OK_TEXT
             elif st["ready"]:
-                txt, col = "✓ " + st["message"], AQUA
+                txt, col = "✓ " + st["message"], OK_TEXT
             else:
-                txt, col = st["message"], AMBER
+                txt, col = st["message"], WARN_TEXT
         elif page == "camera":
             if e.tray_driver_installed():
-                txt, col = "✓ Installed - you can choose \"HappyHacks Virtual Camera\" in your meeting app.", AQUA
+                txt, col = "✓ Installed - you can choose \"HappyHacks Virtual Camera\" in your meeting app.", OK_TEXT
             elif not e.tray_driver_available():
                 txt, col = "The camera comes with the installed app. (From source, OBS Virtual Camera is used.)", MUTED
             else:
@@ -1670,7 +1673,7 @@ class Wizard:
             if e.calibrator is not None:
                 txt = f"Calibrating... {int(e.calibrator.coverage * 100)}% of the room seen"
             elif e.background is not None:
-                txt, col = "✓ Calibrated.", AQUA
+                txt, col = "✓ Calibrated.", OK_TEXT
         elif page == "record":
             self.rec_button.configure(text="Cancel recording" if e.recording_active else "Start recording")
             st = e.recorder.state
@@ -1679,14 +1682,14 @@ class Wizard:
             elif st == State.PROCESSING:
                 txt = "Stitching your loop..."
             elif e.player is not None:
-                txt, col = "✓ You have a loop. Record more any time.", AQUA
+                txt, col = "✓ You have a loop. Record more any time.", OK_TEXT
         self.status.configure(text=txt, foreground=col)
 
 
 def run_startup_update(rel, token: str) -> str | None:
     """Small 'Updating...' window while the new version downloads. Returns the downloaded path."""
     root = tk.Tk()
-    root.title("Doppleganger")
+    root.title("BRB")
     root.resizable(False, False)
     apply_theme(root)
     f = ttk.Frame(root, padding=22)

@@ -12,7 +12,7 @@ WDA_EXCLUDEFROMCAPTURE = 0x11  # Windows 10 2004+: window is invisible to screen
 
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-RUN_NAME = "Doppleganger"
+RUN_NAME = "BRB"
 
 
 def startup_command() -> str | None:

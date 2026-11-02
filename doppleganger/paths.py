@@ -32,6 +32,6 @@ def data_dir() -> str:
         base = os.path.expanduser("~/Library/Application Support")
     else:
         base = os.environ.get("APPDATA") or os.path.expanduser("~")
-    d = os.path.join(base, "Doppleganger")
+    d = os.path.join(base, "Doppleganger")   # folder name kept from before the rename to BRB
     os.makedirs(d, exist_ok=True)
     return d

@@ -1,7 +1,7 @@
 """Self-update from GitHub Releases (packaged app only).
 
-Each build on GitHub publishes a release tagged vX.Y.N with Doppleganger.exe (Windows)
-and Doppleganger-mac-<arm64|x86_64>.zip (Mac) attached. The app compares that tag with
+Each build on GitHub publishes a release tagged vX.Y.N with BRB.exe (Windows)
+and BRB-mac-<arm64|x86_64>.zip (Mac) attached. The app compares that tag with
 its own version; to update it downloads the new build, then a tiny script swaps it in
 once the app has exited and starts the new version.
 """
@@ -20,7 +20,7 @@ from typing import Callable
 
 from . import __version__
 
-ASSET_NAME = "Doppleganger.exe"
+ASSET_NAME = "BRB.exe"
 
 
 def mac_arch() -> str:
@@ -31,7 +31,7 @@ def mac_arch() -> str:
 def asset_name() -> str:
     """The release file this copy of Doppleganger updates itself from."""
     if sys.platform == "darwin":
-        return f"Doppleganger-mac-{mac_arch()}.zip"
+        return f"BRB-mac-{mac_arch()}.zip"
     return ASSET_NAME
 
 
@@ -148,9 +148,9 @@ def mac_update_script(zip_path: str, app: str, pid: int) -> str:
     return f"""#!/bin/sh
 while kill -0 {pid} 2>/dev/null; do sleep 0.5; done
 tmp=$(mktemp -d)
-if ditto -x -k {q(zip_path)} "$tmp" && [ -d "$tmp/Doppleganger.app" ]; then
+if ditto -x -k {q(zip_path)} "$tmp" && [ -d "$tmp/BRB.app" ]; then
   rm -rf {q(app)}.old
-  mv {q(app)} {q(app)}.old && ditto "$tmp/Doppleganger.app" {q(app)} && rm -rf {q(app)}.old || mv {q(app)}.old {q(app)}
+  mv {q(app)} {q(app)}.old && ditto "$tmp/BRB.app" {q(app)} && rm -rf {q(app)}.old || mv {q(app)}.old {q(app)}
 fi
 xattr -dr com.apple.quarantine {q(app)} 2>/dev/null
 rm -rf "$tmp" {q(zip_path)}

@@ -11,7 +11,7 @@ from doppleganger import updater
 def _fake_release(tag):
     body = json.dumps({"tag_name": tag, "body": "", "assets": [
         {"name": n, "url": "API_URL", "browser_download_url": "PUBLIC_URL"}
-        for n in ("Doppleganger.exe", "Doppleganger-mac-arm64.zip", "Doppleganger-mac-x86_64.zip")]}).encode()
+        for n in ("BRB.exe", "BRB-mac-arm64.zip", "BRB-mac-x86_64.zip")]}).encode()
 
     class Resp(io.BytesIO):
         def __enter__(self):
@@ -66,7 +66,7 @@ def test_relaunch_environment_drops_pyinstaller_markers():
 def test_mac_asset_name_and_update_script(tmp_path):
     with mock.patch.object(updater.sys, "platform", "darwin"), \
          mock.patch.object(updater, "mac_arch", return_value="arm64"):
-        assert updater.asset_name() == "Doppleganger-mac-arm64.zip"
+        assert updater.asset_name() == "BRB-mac-arm64.zip"
     s = updater.mac_update_script("/tmp/new.zip", "/Applications/Doppleganger.app", 123)
     assert "kill -0 123" in s and "ditto -x -k '/tmp/new.zip'" in s
     assert "open '/Applications/Doppleganger.app'" in s

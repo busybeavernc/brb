@@ -83,7 +83,7 @@ def obs_status() -> dict:
 
 def obs_message(obs_installed: bool, camera: str) -> str:
     if not obs_installed and camera != "enabled":
-        return ("Doppleganger uses the OBS Virtual Camera on Mac. Install OBS Studio (free), "
+        return ("BRB uses the OBS Virtual Camera on Mac. Install OBS Studio (free), "
                 "then start its virtual camera once.")
     if camera == "missing":
         return ("OBS Studio is installed, but its virtual camera isn't yet. Open OBS, click "
@@ -340,7 +340,7 @@ class MacHotkeys:
         if has_input_monitoring() is False:
             # Without permission the tap may be created yet never see a key - say so instead.
             request_input_monitoring()
-            raise RuntimeError("Input Monitoring isn't allowed for Doppleganger yet")
+            raise RuntimeError("Input Monitoring isn't allowed for BRB yet")
 
         def callback(_proxy, etype, event, _refcon):
             try:
@@ -359,7 +359,7 @@ class MacHotkeys:
         self._tap = Quartz.CGEventTapCreate(Quartz.kCGSessionEventTap, Quartz.kCGHeadInsertEventTap,
                                             Quartz.kCGEventTapOptionListenOnly, mask, callback, None)
         if not self._tap:
-            raise RuntimeError("macOS didn't allow listening for hotkeys - allow Doppleganger in System "
+            raise RuntimeError("macOS didn't allow listening for hotkeys - allow BRB in System "
                                "Settings > Privacy & Security > Input Monitoring, then reopen it")
         self.ok = True
 

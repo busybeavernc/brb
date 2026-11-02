@@ -10,8 +10,8 @@
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
 #endif
-#define MyAppName "Doppleganger"
-#define MyAppExe "Doppleganger.exe"
+#define MyAppName "BRB"
+#define MyAppExe "BRB.exe"
 #define CertSubject "Doppleganger"
 
 [Setup]
@@ -19,17 +19,17 @@ AppId={{15FD5392-9957-4C70-8B19-BF99EF9DC62C}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
-AppPublisher=busybeavernc
-AppPublisherURL=https://github.com/busybeavernc/doppleganger
-AppSupportURL=https://github.com/busybeavernc/doppleganger/issues
-AppComments=A seamless switch.
+AppPublisher=Happy Hacks
+AppPublisherURL=https://brb.happyhacks.io
+AppSupportURL=https://brb.happyhacks.io/guide
+AppComments=Need a moment? Be right back.
 DefaultDirName={localappdata}\Programs\{#MyAppName}
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 DisableReadyPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename=DopplegangerSetup
+OutputBaseFilename=BRBSetup
 SetupIconFile=..\doppleganger\assets\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExe}
 UninstallDisplayName={#MyAppName}
@@ -44,11 +44,11 @@ CloseApplications=force
 RestartApplications=no
 
 [Messages]
-WelcomeLabel2=This installs [name/ver] on your computer.%n%nDoppleganger records a seamless loop of you and lets you switch between it and your live webcam in Zoom, Teams and more.%n%nA seamless switch.
+WelcomeLabel2=This installs [name/ver] on your computer.%n%nNeed a moment? BRB (Be Right Back) shows a short, natural loop of you in your video meetings while you take a quick break, then switches back to your live camera.%n%nBy Happy Hacks.
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
-Name: "trustpublisher"; Description: "Trust the Doppleganger publisher on this PC (removes the ""unknown publisher"" warning for Doppleganger only; Windows will ask you to confirm)"; Flags: unchecked
+Name: "trustpublisher"; Description: "Trust this app's publisher certificate on this PC (removes the ""unknown publisher"" warning for BRB only; Windows will ask you to confirm)"; Flags: unchecked
 
 [Files]
 Source: "..\dist\{#MyAppExe}"; DestDir: "{app}"; Flags: ignoreversion
@@ -60,13 +60,13 @@ Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Tasks: deskto
 
 [Run]
 Filename: "{sys}\certutil.exe"; Parameters: "-user -addstore Root ""{app}\doppleganger-publisher.cer"""; \
-  StatusMsg: "Trusting the Doppleganger publisher..."; Flags: runhidden waituntilterminated; Tasks: trustpublisher
+  StatusMsg: "Trusting the publisher certificate..."; Flags: runhidden waituntilterminated; Tasks: trustpublisher
 Filename: "{sys}\certutil.exe"; Parameters: "-user -addstore TrustedPublisher ""{app}\doppleganger-publisher.cer"""; \
   Flags: runhidden waituntilterminated; Tasks: trustpublisher
 ; The HappyHacks Virtual Camera (what Zoom/Teams use). Windows asks for permission once.
 Filename: "{app}\{#MyAppExe}"; Parameters: "--install-camera"; StatusMsg: "Installing the HappyHacks Virtual Camera (approve the Windows prompt)..."; \
   Flags: waituntilterminated skipifsilent
-Filename: "{app}\{#MyAppExe}"; Description: "Open Doppleganger"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExe}"; Description: "Open BRB"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 ; Remove the HappyHacks Virtual Camera (Windows asks for permission if it's installed).
@@ -77,8 +77,8 @@ Filename: "{sys}\certutil.exe"; Parameters: "-user -delstore Root ""{#CertSubjec
 
 [Registry]
 ; "Start Doppleganger when Windows starts" (set from the app's Settings) is removed on uninstall.
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Doppleganger"; \
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "BRB"; \
   Flags: uninsdeletevalue dontcreatekey
 
 [UninstallDelete]
-Type: files; Name: "{app}\Doppleganger.exe.new"
+Type: files; Name: "{app}\BRB.exe.new"

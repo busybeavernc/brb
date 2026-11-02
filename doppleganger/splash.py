@@ -1,4 +1,4 @@
-"""Splash screen while Doppleganger starts (loading the AI model and opening the webcam takes a few seconds).
+"""Splash screen while BRB starts (loading the AI model and opening the webcam takes a few seconds).
 
 - Packaged Windows .exe: PyInstaller's own splash appears the moment you double-click,
   before Python even starts (while the app unpacks); we close it when the window is up.
@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import sys
 
-MIDNIGHT, CLOUD, MUTED, VIOLET, AQUA, TRACK = "#111827", "#F8FAFC", "#94A3B8", "#7C3AED", "#2DD4BF", "#232D42"
+MIDNIGHT, CLOUD, MUTED, VIOLET, AQUA, TRACK = "#FAF8F3", "#244B4B", "#6B807C", "#244B4B", "#8FB9AA", "#E6E1D8"
 
 _native = None   # PyInstaller's pyi_splash module, if this build has one
 _tk = None       # our Tk splash
@@ -37,7 +37,7 @@ class _TkSplash:
             self.logo = tk.PhotoImage(file=_asset("splash_logo.png"))
             tk.Label(self.root, image=self.logo, bg=MIDNIGHT, bd=0).pack()
         except tk.TclError:
-            tk.Label(self.root, text="Doppleganger", bg=MIDNIGHT, fg=CLOUD,
+            tk.Label(self.root, text="BRB - Be Right Back", bg=MIDNIGHT, fg=CLOUD,
                      font=("Helvetica", 28, "bold"), pady=60).pack(fill="x")
         self.msg = tk.Label(self.root, text="Starting...", bg=MIDNIGHT, fg=MUTED, font=("Helvetica", 12))
         self.msg.pack(pady=(0, 14))

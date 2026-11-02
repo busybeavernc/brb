@@ -14,7 +14,7 @@ log = logging.getLogger("doppleganger")
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Doppleganger - loop/live virtual camera")
+    ap = argparse.ArgumentParser(description="BRB - loop/live virtual camera")
     ap.add_argument("--config", default="config.json")
     ap.add_argument("--camera", type=int, help="webcam index (0, 1, ...)")
     ap.add_argument("--seconds", type=float, help="loop length in seconds")
@@ -30,7 +30,7 @@ def main() -> None:
 
     logging.basicConfig(filename="doppleganger.log", filemode="w", level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
-    log.info("Doppleganger v%s starting in %s", updater.current_version(), os.getcwd())
+    log.info("BRB v%s starting in %s", updater.current_version(), os.getcwd())
 
     if args.minimized:
         splash.close()  # started at sign-in: stay out of the way
@@ -69,8 +69,8 @@ def main() -> None:
         if macos.ensure_camera_access() is False:
             splash.close()
             macos.open_camera_privacy_settings()
-            raise RuntimeError("Doppleganger isn't allowed to use the camera. Turn it on in System Settings > "
-                               "Privacy & Security > Camera, then open Doppleganger again.")
+            raise RuntimeError("BRB isn't allowed to use the camera. Turn it on in System Settings > "
+                               "Privacy & Security > Camera, then open BRB again.")
 
     splash.status("Opening your webcam and loading AI person detection...", 0.45)
     engine = Engine(cfg, vcam=not args.no_vcam, config_path=args.config, progress=splash.status)
@@ -86,7 +86,7 @@ def main() -> None:
     from .ui import MainWindow  # imported late: Tk isn't needed for --remove-camera
     splash.close()  # one Tk window at a time (two Tk roots at once misbehave on macOS)
     MainWindow(engine, minimized=args.minimized).run()
-    log.info("Doppleganger closed")
+    log.info("BRB closed")
     logging.shutdown()
     # Everything is saved and released by now; don't let a stray tray/hotkey thread keep us alive.
     os._exit(0)
