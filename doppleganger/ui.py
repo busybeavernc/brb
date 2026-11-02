@@ -1002,7 +1002,7 @@ class LicenseDialog:
         self.offer_lbl = ttk.Label(f, text="", wraplength=px(440), justify="left", foreground=OK_TEXT,
                                    font=F(10, "bold"))
         self.offer_lbl.pack(anchor="w")
-        self.now_lbl = ttk.Label(f, text="", style="Small.TLabel")
+        self.now_lbl = ttk.Label(f, text="", style="Small.TLabel", wraplength=px(440), justify="left")
         self.now_lbl.pack(anchor="w", pady=(4, 12))
         self.get_btn = ttk.Button(f, text="Get Unlimited Access Now", style="Accent.TButton", command=self._open_site)
         self.get_btn.pack(anchor="w")
@@ -1031,6 +1031,7 @@ class LicenseDialog:
     def _open_site(self):
         import webbrowser
         webbrowser.open(self.lic.license_url)
+        self.lic.watch_for_purchase()   # the key goes onto this computer: BRB notices it within seconds
 
     def _apply(self):
         key = self.var.get().strip()
@@ -1051,7 +1052,14 @@ class LicenseDialog:
         if not self.alive:
             return
         lic = self.lic
-        self.now_lbl.configure(text="Now: " + lic.summary())
+        if lic.watching:
+            self.now_lbl.configure(text="Waiting for your purchase... Finish it in your browser: BRB switches to "
+                                        "unlimited by itself as soon as it goes through.", foreground=OK_TEXT)
+        else:
+            self.now_lbl.configure(text="Now: " + lic.summary(), foreground=OK_TEXT if lic.unlimited else MUTED)
+        if lic.unlimited and not self._applied and getattr(self, "_was_free", False):
+            self._applied = True   # bought just now (or put on this computer by support): say so
+        self._was_free = not lic.unlimited
         fresh = lic.status_seq != self._seq
         if fresh:
             self.pitch_lbl.configure(text=lic.pitch or "Unlimited Access: unlimited LOOP time, cancel any time.")

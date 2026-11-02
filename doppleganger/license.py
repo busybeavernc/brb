@@ -28,6 +28,8 @@ log = logging.getLogger("doppleganger")
 
 SERVER = "https://brb.happyhacks.io"
 STATUS_EVERY = 300.0    # recheck the license this often (s)
+WATCH_EVERY = 5.0       # ...and this often after "Get Unlimited Access Now", until the purchase shows up
+WATCH_FOR = 20 * 60.0   # (for up to 20 minutes)
 RENEW_BEFORE = 15.0     # renew a lease when this little of it is left (s)
 START_GRACE = 8.0       # after cutting to the LOOP, the server must answer within this (s)
 WARN_AT = 300.0         # "5 minutes of free LOOP time left"
@@ -97,6 +99,7 @@ class LicenseGate:
         self.final_lease = False      # the last bit of free time: it just runs out, no renewal
         self._last_ask = 0.0
         self._last_status = 0.0
+        self._watch_until = 0.0       # watching for a purchase until then (time.monotonic())
         self._warned = False
         threading.Thread(target=self._worker, daemon=True, name="license").start()
         self.refresh()
@@ -170,8 +173,20 @@ class LicenseGate:
             if self.lease_until or self.lease_pending:
                 self.lease_until = 0.0
                 self._ask("lease", "release")
-        if now - self._last_status > STATUS_EVERY and not on:
+        watching = now < self._watch_until and not self.unlimited
+        if watching and now - self._last_status > WATCH_EVERY:
+            self.refresh()   # a status check charges nothing, so it's fine with the LOOP on air too
+        elif now - self._last_status > STATUS_EVERY and not on:
             self.refresh()
+
+    def watch_for_purchase(self) -> None:
+        """The person went to buy unlimited access: check every few seconds until the key shows up (the website puts
+        it on this computer), so it applies by itself - no key to copy and paste."""
+        self._watch_until = time.monotonic() + WATCH_FOR
+
+    @property
+    def watching(self) -> bool:
+        return time.monotonic() < self._watch_until and not self.unlimited
 
     def refresh(self) -> None:
         self._last_status = time.monotonic()

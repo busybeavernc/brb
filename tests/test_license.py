@@ -231,3 +231,32 @@ def test_says_why_it_cant_connect():
     g._body = lambda **k: {}
     g._call("status", "")
     assert not g.online and "security program" in g.message
+
+
+def test_watches_for_a_purchase_after_get_unlimited(monkeypatch):
+    """After "Get Unlimited Access Now" the app checks every few seconds, LOOP on air or not, until it's unlimited."""
+    now = [5000.0]
+    monkeypatch.setattr(L.time, "monotonic", lambda: now[0])
+    g = L.LicenseGate.__new__(L.LicenseGate)
+    g.unlimited, g._last_status, g._watch_until, g.started_at = False, now[0], 0.0, 0.0
+    g.lease_until, g.lease_pending, g.final_lease, g._last_ask = 0.0, False, False, 0.0
+    asked = []
+    g.refresh = lambda: (asked.append(now[0]), setattr(g, "_last_status", now[0]))
+    g.on_air(False)
+    now[0] += 10
+    g.on_air(False)
+    assert asked == []                         # normally: every 5 minutes
+    g.watch_for_purchase()
+    assert g.watching
+    now[0] += 6
+    g.on_air(False)
+    assert len(asked) == 1
+    g._ask = lambda *a: None
+    g.started_at = now[0]                      # LOOP on air: still checks (a status check charges nothing)
+    now[0] += 6
+    g.on_air(True)
+    assert len(asked) == 2
+    g.unlimited = True                         # the purchase went through: back to normal
+    now[0] += 6
+    g.on_air(True)
+    assert len(asked) == 2 and not g.watching
