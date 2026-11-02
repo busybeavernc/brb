@@ -53,6 +53,7 @@ class Output:
         self.device = ""
         self._next_try = 0.0
         self._last_logged = ""
+        self._lock = threading.RLock()   # send() runs on the steady output thread, reconnect() on the engine's
         if enabled:
             self._connect()
 
@@ -84,9 +85,10 @@ class Output:
                 self._last_logged = self.error
 
     def reconnect(self) -> None:
-        self.close()
-        if self.enabled:
-            self._connect()
+        with self._lock:
+            self.close()
+            if self.enabled:
+                self._connect()
 
     @property
     def connected(self) -> bool:
@@ -97,6 +99,10 @@ class Output:
         return bool(getattr(self.cam, "viewer_connected", False))
 
     def send(self, frame: np.ndarray) -> None:
+        with self._lock:
+            self._send(frame)
+
+    def _send(self, frame: np.ndarray) -> None:
         if self.cam is None:
             if self.enabled and time.monotonic() >= self._next_try:
                 self._connect()
@@ -422,9 +428,10 @@ class Engine:
         return p if p and os.path.exists(p) else latest_loop(self.cfg.loops_dir)
 
     def _load_loop(self, path: str, announce: bool = True) -> None:
-        if self.player:
-            self.player.close()
-        self.player = LoopPlayer(path, (self.cfg.width, self.cfg.height))
+        new = LoopPlayer(path, (self.cfg.width, self.cfg.height))
+        old, self.player = self.player, new   # swap first: the output thread always has a working player
+        if old:
+            old.close()
         self.loop_path = path
         self.loop_running = False
         self.sync = 0.0
@@ -783,7 +790,10 @@ class Engine:
             time.sleep(0.01)
         if live is None:   # no webcam (yet): a calm placeholder until one is plugged in
             live = placeholder(self.cfg.width, self.cfg.height, "No webcam connected - plug one in")
+        self._last_live = live
         self._start_camera_watcher()
+        self._out_thread = threading.Thread(target=self._send_to_meeting, daemon=True, name="meeting-output")
+        self._out_thread.start()
         self._ticks, self._ticks_at = 0, time.monotonic()
         try:
             while self.running:
@@ -800,10 +810,11 @@ class Engine:
                     self.notify(self.recorder.message)
                     self.recorder.message = ""
 
-                # Once activated, the loop advances every frame whether or not it's on air.
-                loop_frame = self.player.next_frame() if (self.loop_running and self.player) else None
-                out = self._compose(live, loop_frame)
-                self.output.send(out)
+                # Once activated, the loop runs on (by the clock) whether or not it's on air. What the meeting
+                # sees is sent by the steady output thread (_send_to_meeting); this loop does the heavy work.
+                self._last_live = live
+                loop_frame = self.player.frame_now() if (self.loop_running and self.player) else None
+                out = self._compose(live, loop_frame, fade=False)
 
                 self._license_tick()
                 self._update_sync(live, loop_frame, out)
@@ -835,9 +846,32 @@ class Engine:
     def stop(self) -> None:
         self.request("quit")
 
-    def _compose(self, live: np.ndarray, loop_frame: np.ndarray | None) -> np.ndarray:
+    def _send_to_meeting(self) -> None:
+        """Output thread: exactly cfg.fps pictures a second to the virtual camera, on its own clock - the current
+        loop frame (buffered, by time) or your newest camera picture - however busy the engine loop is."""
+        dt = 1.0 / self.cfg.fps
+        next_t = time.monotonic()
+        while self.running:
+            try:
+                live = self.camera.latest()
+                if live is None:
+                    live = self._last_live
+                player = self.player
+                loop_frame = player.frame_for_output() if (self.loop_running and player is not None) else None
+                self.output.send(self._compose(live, loop_frame))
+            except Exception:  # noqa: BLE001 - keep sending; one bad frame must not stop the meeting's picture
+                log.exception("meeting output")
+                time.sleep(0.2)
+            next_t += dt
+            delay = next_t - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+            else:
+                next_t = time.monotonic()   # fell behind (the computer was busy): carry on from now
+
+    def _compose(self, live: np.ndarray, loop_frame: np.ndarray | None, fade: bool = True) -> np.ndarray:
         cur = loop_frame if (self.mode == "loop" and loop_frame is not None) else live
-        if self.fade_from and self.cfg.crossfade_ms > 0:
+        if fade and self.fade_from and self.cfg.crossfade_ms > 0:
             t = (time.monotonic() - self.fade_start) * 1000 / self.cfg.crossfade_ms
             if t >= 1:
                 self.fade_from = None
@@ -973,6 +1007,9 @@ class Engine:
             return
         self._closed = True
         self.running = False
+        t = getattr(self, "_out_thread", None)
+        if t is not None and t is not threading.current_thread():
+            t.join(timeout=1.0)   # let the meeting's output stop before its camera closes
         self.mic.restore()
         self.mic.flush()
         if getattr(self, "lic", None):
