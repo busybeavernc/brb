@@ -186,3 +186,48 @@ def test_follows_a_moved_license_server(monkeypatch):
     assert g._http_post("/api/v1/license/status", {}) == (200, {"ok": True})
     assert seen == [("https://doppleganger.happyhacks.io/api/v1/license/status", "POST"),
                     ("https://brb.happyhacks.io/api/v1/license/status", "POST")]
+
+
+def test_falls_back_to_this_computers_certificates(monkeypatch):
+    """Antivirus/company proxies re-sign HTTPS with their own certificate: the bundled list rejects it."""
+    import io
+    import ssl
+    import urllib.error
+
+    calls = []
+
+    class Resp(io.BytesIO):
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=10, context=None):
+        calls.append(context)
+        if len(calls) == 1:
+            raise urllib.error.URLError(ssl.SSLCertVerificationError(1, "CERTIFICATE_VERIFY_FAILED"))
+        return Resp(b'{"ok": true}')
+
+    monkeypatch.setattr(L.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(L, "server", lambda: "https://brb.happyhacks.io")
+    g = L.LicenseGate.__new__(L.LicenseGate)
+    g.version = "t"
+    assert g._http_post("/api/v1/license/status", {}) == (200, {"ok": True})
+    assert len(calls) == 2 and g._system_certs
+
+
+def test_says_why_it_cant_connect():
+    import ssl
+    import urllib.error
+    g = L.LicenseGate.__new__(L.LicenseGate)
+    g.version, g.online, g.message = "t", True, ""
+
+    def boom(*_a):
+        raise urllib.error.URLError(ssl.SSLCertVerificationError(1, "CERTIFICATE_VERIFY_FAILED"))
+    g._post = boom
+    g._body = lambda **k: {}
+    g._call("status", "")
+    assert not g.online and "security program" in g.message

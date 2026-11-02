@@ -40,14 +40,24 @@ def server() -> str:
     return SERVER
 
 
-def _ssl_context() -> ssl.SSLContext | None:
+def _ssl_context(system: bool = False) -> ssl.SSLContext | None:
+    """Bundled certificate list first. `system`: also trust this computer's own list - needed where antivirus or a
+    company network inspects secure connections with its own certificate (the browser trusts it, the bundle can't)."""
     if server().startswith("http://"):
         return None
     try:
         import certifi
-        return ssl.create_default_context(cafile=certifi.where())   # bundled roots only, not the system's
+        ctx = ssl.create_default_context(cafile=certifi.where())
     except ImportError:
         return ssl.create_default_context()
+    if system:
+        ctx.load_default_certs()   # Windows: the certificate stores; Mac: the system's default paths
+    return ctx
+
+
+def _cert_problem(e: BaseException) -> bool:
+    r = getattr(e, "reason", e)
+    return isinstance(r, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(r)
 
 
 def format_left(seconds: float) -> str:
@@ -58,9 +68,11 @@ def format_left(seconds: float) -> str:
 
 
 class LicenseGate:
+    _system_certs = False
     def __init__(self, cfg, save, version: str = "", transport=None):
         self.cfg, self._save, self.version = cfg, save, version
         self._post = transport or self._http_post
+        self._system_certs = False    # switched on if the bundled certificates are rejected (antivirus, company proxy)
         self._lock = threading.Lock()
         self._q: queue.Queue = queue.Queue()
         # what the server last said
@@ -215,7 +227,16 @@ class LicenseGate:
                                          headers={"Content-Type": "application/json", "Accept": "application/json",
                                                   "User-Agent": f"BRB/{self.version}"})
             try:
-                with urllib.request.urlopen(req, timeout=10, context=_ssl_context()) as r:
+                try:
+                    resp = urllib.request.urlopen(req, timeout=10, context=_ssl_context(self._system_certs))
+                except urllib.error.URLError as e:
+                    if isinstance(e, urllib.error.HTTPError) or self._system_certs or not _cert_problem(e):
+                        raise
+                    log.info("license server: bundled certificates rejected the connection (%s); "
+                             "trying this computer's certificates", e)
+                    self._system_certs = True   # e.g. antivirus inspecting HTTPS
+                    resp = urllib.request.urlopen(req, timeout=10, context=_ssl_context(True))
+                with resp as r:
                     return r.status, json.loads(r.read() or b"{}")
             except urllib.error.HTTPError as e:
                 target = e.headers.get("Location") if e.code in (301, 302, 307, 308) else None
@@ -237,8 +258,13 @@ class LicenseGate:
                 code, data = self._post("/api/v1/license/lease", self._body(action=action))
         except (urllib.error.URLError, OSError, ValueError) as e:
             self.online = False
-            self.message = "Can't reach brb.happyhacks.io - the LOOP needs an internet connection."
-            log.info("license server unreachable: %s", e)
+            if _cert_problem(e):
+                self.message = ("A security program or network on this PC is blocking BRB's secure connection to "
+                                "brb.happyhacks.io (certificate not trusted).")
+            else:
+                why = getattr(e, "reason", e)
+                self.message = f"Can't reach brb.happyhacks.io ({str(why)[:80]}) - the LOOP needs an internet connection."
+            log.info("license server unreachable: %r", e)
             return
         self.online = True
         if code != 200:

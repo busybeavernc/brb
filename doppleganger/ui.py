@@ -283,7 +283,8 @@ class MainWindow:
         # license: free LOOP time left / countdown, and Get License Key until a key is applied
         licrow = ttk.Frame(side)
         licrow.grid(sticky="ew", pady=(6, 0))
-        self.lic_lbl = tk.Label(licrow, text="", bg=MIDNIGHT, fg=MUTED, font=F(9), anchor="w", justify="left")
+        self.lic_lbl = tk.Label(licrow, text="", bg=MIDNIGHT, fg=MUTED, font=F(9), anchor="w", justify="left",
+                                wraplength=px(240))
         self.lic_lbl.pack(side="left")
         self.lic_btn = ttk.Button(licrow, text="Get License Key", style="Accent.TButton", command=self.open_license)
         # Mac only, while OBS or its camera is missing (beside the LIVE badge, so the panel doesn't grow)
@@ -629,8 +630,7 @@ class MainWindow:
         left = lic.remaining()
         on_air = self.e.mode == "loop"
         if not lic.known:   # no answer from the license server yet: don't claim the free time is used up
-            self.lic_lbl.configure(text=lic.summary() if lic.online or not lic.message else
-                                   "License: can't reach brb.happyhacks.io - check your internet connection",
+            self.lic_lbl.configure(text=lic.summary() if lic.online or not lic.message else lic.message,
                                    fg=WARN_TEXT if lic.message else MUTED, font=F(9))
         elif left is not None and left <= WARN_AT and (on_air or left <= 0.5):
             text = (f"⏱ {format_left(left)} of free LOOP time left" if left > 0.5 else
@@ -1049,8 +1049,7 @@ class LicenseDialog:
             self.pitch_lbl.configure(text=lic.pitch or "Unlimited Access: unlimited LOOP time, cancel any time.")
             self.offer_lbl.configure(text=lic.offer_text if lic.offer and not lic.unlimited else "")
         elif not lic.online and lic.message and self.pitch_lbl.cget("text").startswith("Checking"):
-            self.pitch_lbl.configure(text="Couldn't reach brb.happyhacks.io for the latest prices. "
-                                          "Check your internet connection.")
+            self.pitch_lbl.configure(text="Couldn't get the latest prices: " + lic.message)
         if self._applied:
             if lic.unlimited:
                 self.result.configure(text="✓ License applied. Unlimited LOOP time on this computer.", foreground=OK_TEXT)
