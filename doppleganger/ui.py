@@ -1159,6 +1159,12 @@ class SettingsWindow:
                         command=self._changed).grid(sticky="w")
         ttk.Checkbutton(f, text="Hide BRB's windows from screen sharing", variable=self.v_hide,
                         command=self._changed).grid(sticky="w")
+        self.v_badge = tk.BooleanVar(value=self.cfg.loop_badge)
+        ttk.Checkbutton(f, text="Show a small BRB badge to the meeting while the LOOP is on air",
+                        variable=self.v_badge, command=self._changed).grid(sticky="w")
+        ttk.Label(f, text="Lets others see you've stepped away for a moment (bottom-right corner). "
+                          "Use it if your organizer asks for it, or if you simply prefer it.",
+                  style="Small.TLabel", wraplength=px(420), justify="left").grid(sticky="w", padx=(24, 0))
 
         ttk.Label(f, text="Cuts & preview", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
         self.v_fade = tk.BooleanVar(value=self.cfg.crossfade_ms > 0)
@@ -1252,6 +1258,7 @@ class SettingsWindow:
         hide_changed = c.hide_from_screen_share != self.v_hide.get()
         c.mute_mic_on_loop = self.v_mute.get()
         c.hide_from_screen_share = self.v_hide.get()
+        c.loop_badge = self.v_badge.get()
         c.show_guides = self.v_guides.get()
         c.show_outlines = self.v_outlines.get()
         c.show_record_tips = self.v_tips.get()

@@ -255,3 +255,33 @@ def pill(img, text: str, right: int, top: int, color, scale: float = 0.8) -> int
     _, _, base = _text_patch(text, _px(scale), (255, 255, 255), True, False)
     put_text(img, text, (x0 + 14, top + 6 + base), scale, bold=True, shadow=False)
     return x0
+
+
+# ---------- the optional BRB badge (what the meeting sees while the LOOP is on air) ----------
+_badge_cache: dict = {}
+
+
+def stamp_badge(frame: np.ndarray, width_frac: float = 0.13, margin_frac: float = 0.025) -> np.ndarray:
+    """A copy of `frame` with the small BRB badge in the bottom-right corner (about 13% of the frame wide)."""
+    h, w = frame.shape[:2]
+    bw = max(40, int(w * width_frac))
+    key = (bw,)
+    badge = _badge_cache.get(key)
+    if badge is None:
+        src = cv2.imread(brand.asset("watermark.png"), cv2.IMREAD_UNCHANGED)
+        if src is None or src.shape[2] != 4:
+            return frame
+        bh = max(1, round(bw * src.shape[0] / src.shape[1]))
+        small = cv2.resize(src, (bw, bh), interpolation=cv2.INTER_AREA)
+        alpha = small[..., 3:4].astype(np.float32) / 255.0
+        badge = _badge_cache[key] = (small[..., :3].astype(np.float32) * alpha, 1.0 - alpha)
+    color, keep = badge
+    bh = color.shape[0]
+    m = max(4, int(min(w, h) * margin_frac))
+    y0, x0 = h - m - bh, w - m - bw
+    if y0 < 0 or x0 < 0:
+        return frame
+    out = frame.copy()   # never draw into a frame someone else holds (the loop buffer)
+    roi = out[y0:y0 + bh, x0:x0 + bw].astype(np.float32)
+    out[y0:y0 + bh, x0:x0 + bw] = (roi * keep + color).astype(np.uint8)
+    return out

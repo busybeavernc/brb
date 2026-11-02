@@ -858,7 +858,10 @@ class Engine:
                     live = self._last_live
                 player = self.player
                 loop_frame = player.frame_for_output() if (self.loop_running and player is not None) else None
-                self.output.send(self._compose(live, loop_frame))
+                frame = self._compose(live, loop_frame)
+                if self.cfg.loop_badge and self.mode == "loop":
+                    frame = guides.stamp_badge(frame)   # what the meeting sees: a small BRB badge, bottom right
+                self.output.send(frame)
             except Exception:  # noqa: BLE001 - keep sending; one bad frame must not stop the meeting's picture
                 log.exception("meeting output")
                 time.sleep(0.2)
@@ -967,6 +970,8 @@ class Engine:
         if self.camera_lost:
             guides.banner(prev, "Webcam disconnected - plug it back in, or choose another under Webcam",
                           brand.CV_DANGER)
+        if cfg.loop_badge and self.mode == "loop" and base is out:
+            prev = guides.stamp_badge(prev)   # drawn after mirroring, so it reads (and sits) as the meeting sees it
         self._draw_on_air(prev)
         left = self.lic.remaining() if self.mode == "loop" else None
         if left is not None and left <= 30:
