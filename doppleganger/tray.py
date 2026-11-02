@@ -41,7 +41,6 @@ def start_tray(request: Callable[[str], None], version: str, state=None):
 
     menu = pystray.Menu(
         item("Cut LIVE / LOOP", lambda: request("toggle"), default=True),
-        item("Fake bad connection (glitch)", lambda: request("glitch")),
         item(lambda it: "Cancel recording" if (state and state.recording_active) else "Record new loop",
              lambda: request("record")),
         item("Calibrate silhouette", lambda: request("calibrate")),

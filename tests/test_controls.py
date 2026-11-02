@@ -49,11 +49,11 @@ def test_combo_tracker_press_release_and_repeat():
     events = []
     t = ComboTracker()
     t.add("f9", frozenset({"F9"}), lambda: events.append("down"), lambda: events.append("up"))
-    t.add("ctrl+g", frozenset({"CTRL", "G"}), lambda: events.append("glitch"))
+    t.add("ctrl+g", frozenset({"CTRL", "G"}), lambda: events.append("view"))
     t.press("F9"); t.press("F9"); t.press("F9")  # auto-repeat
     t.release("F9")
     t.press("CTRL"); t.press("G"); t.release("G"); t.release("CTRL")
-    assert events == ["down", "up", "glitch"]
+    assert events == ["down", "up", "view"]
 
 
 # ---------- microphone: mute only what was unmuted, restore exactly that ----------

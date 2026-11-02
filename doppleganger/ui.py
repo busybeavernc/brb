@@ -70,8 +70,8 @@ def set_text_scale(scale: float) -> None:
     _text["user"] = scale
     for (size, _w), f in _fonts.items():
         f.configure(size=_scaled(size))
-MODE_BG = {"live": AQUA, "loop": VIOLET, "glitch": AMBER}
-MODE_FG = {"live": INK, "loop": INK, "glitch": INK}
+MODE_BG = {"live": AQUA, "loop": VIOLET}
+MODE_FG = {"live": INK, "loop": INK}
 
 
 def _photo(path: str, width: int | None = None, bg: str = MIDNIGHT) -> ImageTk.PhotoImage:
@@ -276,8 +276,6 @@ class MainWindow:
         top.grid(sticky="ew")
         self.state_lbl = tk.Label(top, text="LIVE", fg=INK, bg=AQUA, font=F(15, "bold"), width=7, pady=3)
         self.state_lbl.pack(side="left")
-        self.glitch_lbl = tk.Label(top, text="GLITCH", fg=INK, bg=AMBER, font=F(10, "bold"),
-                                   padx=8, pady=6)
         self.out_lbl = ttk.Label(side, text="", style="Small.TLabel", wraplength=px(300), justify="left")
         self.out_lbl.grid(sticky="w", pady=(6, 0))
         # license: free LOOP time left / countdown, and Get License Key until a key is applied
@@ -314,8 +312,8 @@ class MainWindow:
         row.grid(sticky="ew", pady=(10, 0))
         for i in range(3):
             row.columnconfigure(i, weight=1)
-        gk = self.cfg.glitch_hotkey.strip("<>").upper()
-        ttk.Button(row, text=f"Glitch ({gk})", command=lambda: self.e.request("glitch")).grid(
+        vk = self.cfg.view_hotkey.strip("<>").upper()
+        ttk.Button(row, text=f"Mini Bar ({vk})", command=self.show_minibar).grid(
             row=0, column=0, sticky="ew", padx=(0, 4))
         self.rec_btn = ttk.Button(row, text="Record loop (R)", command=lambda: self.e.request("record"))
         self.rec_btn.grid(row=0, column=1, sticky="ew", padx=4)
@@ -408,7 +406,7 @@ class MainWindow:
             r.bind_class(cls, "<KeyRelease-space>", lambda _e: None)
         r.bind_all("<KeyPress-space>", self._space_down)
         r.bind_all("<KeyRelease-space>", self._space_up)
-        keys = {"r": "record", "b": "glitch", "c": "calibrate", "e": "end_recording", "u": "update", "k": "camera:"}
+        keys = {"r": "record", "c": "calibrate", "e": "end_recording", "u": "update", "k": "camera:"}
         for k, action in keys.items():
             for kk in (k, k.upper()):
                 r.bind_all(f"<KeyPress-{kk}>", lambda _e, a=action: self._key_action(a))
@@ -416,7 +414,7 @@ class MainWindow:
         for kk in ("o", "O"):
             r.bind_all(f"<KeyPress-{kk}>", lambda _e: self._key_action("outlines"))
         for kk in ("m", "M"):
-            r.bind_all(f"<KeyPress-{kk}>", lambda _e: None if self._typing() else self.show_minibar())
+            r.bind_all(f"<KeyPress-{kk}>", lambda _e: None if self._typing() else self.toggle_view())
         for kk in ("g", "G"):
             r.bind_all(f"<KeyPress-{kk}>", lambda _e: None if self._typing() else self.toggle_guides())
 
@@ -547,10 +545,9 @@ class MainWindow:
             self.state_lbl.configure(text="● REC starting...", bg=DANGER, fg=INK, width=0)
         else:
             self.state_lbl.configure(text=mode.upper(), bg=MODE_BG[mode], fg=MODE_FG[mode], width=7)
-        if e.glitch.active and not self.glitch_lbl.winfo_ismapped():
-            self.glitch_lbl.pack(side="left", padx=8)
-        elif not e.glitch.active and self.glitch_lbl.winfo_ismapped():
-            self.glitch_lbl.pack_forget()
+        if getattr(self, "_view_toggles", 0) != e.view_toggles:   # the view hotkey was pressed
+            self._view_toggles = e.view_toggles
+            self.toggle_view()
         pct = int(e.sync * 100)
         insync = e.sync >= SYNC_THRESHOLD
         self.sync_bar.configure(value=pct, style="InSync.Horizontal.TProgressbar" if insync
@@ -674,6 +671,13 @@ class MainWindow:
             self.tips = None
 
     # ---------- other windows ----------
+    def toggle_view(self) -> None:
+        """Full window <-> Mini Bar (M in BRB's windows, or the view hotkey from anywhere)."""
+        if self.minibar is not None and self.minibar.visible:
+            self.show_main()
+        else:
+            self.show_minibar()
+
     def show_minibar(self) -> None:
         if self.minibar is None:
             self.minibar = MiniBar(self)
@@ -1186,10 +1190,10 @@ class SettingsWindow:
         self.len_note.pack(side="left")
 
         ttk.Label(f, text="Hotkeys (work while your meeting app is in front)", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
-        hk, gk = self.cfg.hotkey.strip("<>").upper(), self.cfg.glitch_hotkey.strip("<>").upper()
+        hk, vk = self.cfg.hotkey.strip("<>").upper(), self.cfg.view_hotkey.strip("<>").upper()
         if IS_MAC:
-            hk, gk = f"fn+{hk}", f"fn+{gk}"
-        ttk.Label(f, text=f"{hk}: tap = cut now, hold = cut when in sync     {gk}: glitch effect",
+            hk, vk = f"fn+{hk}", f"fn+{vk}"
+        ttk.Label(f, text=f"{hk}: tap = cut now, hold = cut when in sync     {vk}: full window / Mini Bar",
                   style="Small.TLabel").grid(sticky="w")
         if IS_MAC:
             mac_hk = ttk.Frame(f)
@@ -1211,7 +1215,7 @@ class SettingsWindow:
                   style="Head.TLabel").grid(sticky="w", pady=(12, 2))
         self.v_startup = tk.BooleanVar(value=winutil.starts_with_windows())
         self.startup_chk = ttk.Checkbutton(
-            f, text=f"Start Doppleganger (minimized) {WHEN_STARTS} - so your meeting app always gets a picture",
+            f, text=f"Start BRB (minimized) {WHEN_STARTS} - so your meeting app always gets a picture",
             variable=self.v_startup, command=self._startup_changed)
         self.startup_chk.grid(sticky="w")
         if winutil.startup_command() is None:
@@ -1342,12 +1346,14 @@ class MiniBar:
         self.cut.pack(fill="x")
         row = tk.Frame(right, bg=MIDNIGHT)
         row.pack(fill="x", pady=(5, 0))
-        ttk.Button(row, text="Glitch", width=7, command=lambda: self.e.request("glitch")).pack(side="left")
-        ttk.Button(row, text="Full view", width=9, command=main.show_main).pack(side="right")
+        vk = main.cfg.view_hotkey.strip("<>").upper()
+        ttk.Button(row, text=f"Full view ({vk})", command=main.show_main).pack(fill="x")
         for w in (grip, self.thumb):
             w.bind("<ButtonPress-1>", self._drag_start)
             w.bind("<B1-Motion>", self._drag)
             w.bind("<ButtonRelease-1>", self._drag_end)
+        for kk in ("m", "M"):
+            self.win.bind(f"<KeyPress-{kk}>", lambda _e: main.toggle_view())
         self.win.bind("<KeyPress-space>", main._space_down)
         self.win.bind("<KeyRelease-space>", main._space_up)
         self._place()
@@ -1382,7 +1388,7 @@ class MiniBar:
 
     def refresh(self, rgb) -> None:
         e = self.e
-        mode = "glitch" if e.glitch.active else e.mode
+        mode = e.mode
         left = e.lic.remaining() if e.mode == "loop" else None
         label = mode.upper() + (f"  ·  {format_left(left)}" if left is not None and left <= WARN_AT else "")
         self.state_lbl.configure(text=label, bg=AMBER if left is not None and left <= WARN_AT else MODE_BG[mode],
@@ -1532,7 +1538,7 @@ class Wizard:
         self._status()
 
     def _page_permissions(self):
-        self._title(f"{self.STEPS.index('permissions')}  Allow Doppleganger on your Mac")
+        self._title(f"{self.STEPS.index('permissions')}  Allow BRB on your Mac")
         ttk.Label(self.body, text="macOS asks before an app may use your camera or notice your hotkeys. "
                                   "Turn on BRB in each list below - you only do this once.",
                   wraplength=px(430), justify="left").pack(anchor="w", pady=(0, 10))
@@ -1541,7 +1547,7 @@ class Wizard:
                 ("camera", "Camera", "Shows you in the preview and records your loop.",
                  "Turn on the switch next to BRB.", macos.open_camera_privacy_settings),
                 ("hotkeys", "Input Monitoring",
-                 "Lets fn+F9 (cut) and fn+F10 (glitch) work while your meeting app is in front.",
+                 "Lets fn+F9 (cut) and fn+F10 (full window / Mini Bar) work while your meeting app is in front.",
                  "Turn on BRB (not listed? click +, then Applications > BRB). "
                  "When macOS offers \"Quit & Reopen\", click it.",
                  lambda: (macos.request_input_monitoring(), macos.open_input_monitoring_settings()))):
@@ -1630,14 +1636,14 @@ class Wizard:
     def _page_zoom(self):
         self._title(f"{self.STEPS.index('zoom')}  Use it in your meeting")
         hk = self.main.cfg.hotkey.strip("<>").upper()
-        gk = self.main.cfg.glitch_hotkey.strip("<>").upper()
+        vk = self.main.cfg.view_hotkey.strip("<>").upper()
         cam = "OBS Virtual Camera" if IS_MAC else "HappyHacks Virtual Camera"
         self._para(f"In your meeting app's video (or camera) settings, choose \"{cam}\". It works with Google Meet, "
                    "Microsoft Teams, Webex, Zoom and other apps that let you choose a camera.")
         if IS_MAC:
-            hk, gk = f"fn+{hk}", f"fn+{gk}"
-        self._para(f"Tap {hk} to cut instantly. Hold {hk} and Doppleganger cuts by itself the moment you're in "
-                   f"sync. {gk} plays a short glitch effect that gives you a few seconds to settle back in.")
+            hk, vk = f"fn+{hk}", f"fn+{vk}"
+        self._para(f"Tap {hk} to cut instantly. Hold {hk} and BRB cuts by itself the moment you're in "
+                   f"sync. {vk} switches between the full window and the Mini Bar.")
         self._para("While the loop is on air your microphone is muted, and BRB never appears in "
                    "screen shares. The Mini Bar keeps the controls beside your meeting.")
         if IS_MAC and macos.has_input_monitoring() is False:
@@ -1646,7 +1652,7 @@ class Wizard:
                                         macos.open_input_monitoring_settings())).pack(anchor="w", pady=(2, 4))
         if winutil.startup_command() is not None:
             self._startup = tk.BooleanVar(value=winutil.starts_with_windows())
-            ttk.Checkbutton(self.body, text=f"Start Doppleganger {WHEN_STARTS} (recommended - your meeting app then "
+            ttk.Checkbutton(self.body, text=f"Start BRB {WHEN_STARTS} (recommended - your meeting app then "
                             "always gets a picture)", variable=self._startup,
                             command=lambda: winutil.set_start_with_windows(self._startup.get())).pack(
                 anchor="w", pady=(6, 0))

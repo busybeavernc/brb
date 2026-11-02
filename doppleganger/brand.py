@@ -34,7 +34,7 @@ MUTED = "#6B807C"
 VIOLET_DARK = "#D99A74"
 AQUA_DARK = "#5E9A86"
 TEAL_DARK = "#1A3838"
-AMBER = "#F0BE5A"         # glitch / warnings (functional, not a brand colour)
+AMBER = "#F0BE5A"         # warnings (functional, not a brand colour)
 DANGER = "#E07A6E"
 # coloured text on Ivory (the chip colours above are too light for text)
 OK_TEXT = "#2F7A64"

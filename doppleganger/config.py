@@ -31,8 +31,7 @@ class Config:
     crossfade_ms: int = 0               # 0 = hard cut (default)
     overlay_opacity: float = 0.35       # preview: see-through strength of the off-air feed
     hotkey: str = "<f9>"                # global hotkey (works while Zoom is focused)
-    glitch_hotkey: str = "<f10>"        # global: fake a bad connection (freeze/jump)
-    glitch_max_seconds: float = 30.0    # glitch ends on its own after this long
+    view_hotkey: str = "<f10>"          # global: switch between the full window and the Mini Bar
 
     # Output camera: "auto" = Windows: our HappyHacks Virtual Camera; Mac: OBS Virtual Camera
     output_camera: str = "auto"         # auto | doppleganger | obs

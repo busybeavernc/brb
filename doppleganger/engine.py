@@ -1,4 +1,4 @@
-"""Doppleganger engine: camera in, loop/live/glitch out to the virtual camera, preview for the window."""
+"""BRB engine: camera in, loop/live out to the virtual camera, preview for the window."""
 from __future__ import annotations
 
 import logging
@@ -17,7 +17,6 @@ from .calibrate import Calibrator
 from .camera import Camera, NoCamera, placeholder
 from .config import Config
 from .cutcontrol import SYNC_THRESHOLD, CutController
-from .glitch import Glitch
 from .hotkeys import GlobalHotkeys
 from .mic import MicMuter
 from . import segment
@@ -205,7 +204,7 @@ class Engine:
         self._actions: queue.Queue[str] = queue.Queue()
         self._pending_update: str | None = None
         self._updating = False
-        self.glitch = Glitch(cfg.glitch_max_seconds)
+        self.view_toggles = 0                     # bumps on the view hotkey: the window switches Normal / Mini Bar
         self.calibrator: Calibrator | None = None
         self._record_after_calibration = False
         self.tips_pending = False        # recording tips are showing; Start begins the recording
@@ -476,7 +475,7 @@ class Engine:
         try:
             bindings = {
                 self.cfg.hotkey: (lambda: self.request("cut_press"), lambda: self.request("cut_release")),
-                self.cfg.glitch_hotkey: (lambda: self.request("glitch"), None),
+                self.cfg.view_hotkey: (lambda: self.request("toggle_view"), None),
             }
             # Mac: a Quartz event tap (pynput's listener can crash next to Tk on recent macOS).
             self._hk = macos.MacHotkeys(bindings) if macos.is_mac() else GlobalHotkeys(bindings)
@@ -519,11 +518,7 @@ class Engine:
             # keeps playing in the background and is never restarted by a cut.
             self.player.restart()
             self.loop_running = True
-        if self.glitch.active:
-            # The cut lands inside the glitch: the next "jump" reveals the new feed,
-            # then the picture recovers like a connection coming back.
-            self.glitch.recover(time.monotonic(), delay=0.4, clean_jump=True)
-        elif self.cfg.crossfade_ms > 0:
+        if self.cfg.crossfade_ms > 0:
             self.fade_from, self.fade_start = self.mode, time.monotonic()
         self.mode = new
         self._apply_mic()
@@ -549,8 +544,6 @@ class Engine:
     def _force_live(self, why: str) -> None:
         """Cut to LIVE now, whatever else is going on (free time used up, or no connection to the license server)."""
         log.info("Cut to LIVE by licensing: %s", why)
-        if self.glitch.active:
-            self.glitch.recover(time.monotonic(), delay=0.0, clean_jump=True)
         self.fade_from = None
         self.mode = "live"
         self._apply_mic()
@@ -602,11 +595,6 @@ class Engine:
             self.tips_pending = False
             self.recorder.start()
 
-    def toggle_glitch(self) -> None:
-        was = self.glitch.active and not self.glitch.recovering
-        self.glitch.toggle(time.monotonic())
-        log.info("Glitch %s", "ending" if was else "started")
-
     def calibrate(self, then_record: bool = False) -> None:
         if self.mode == "loop" or self.recorder.state != State.IDLE:
             self.notify("Cut back to LIVE (and finish any recording) before calibrating.")
@@ -640,7 +628,7 @@ class Engine:
             self.notify("Outlines need a calibration for this webcam - see Settings.", 6)
 
     def _draw_outlines(self, prev: np.ndarray, live: np.ndarray, other: np.ndarray | None) -> None:
-        """Aqua = you now, Violet = the loop / frozen picture. Overlapping lines = in sync."""
+        """Green = you now, apricot = the loop. Overlapping lines = in sync."""
         if not self.cfg.show_outlines:
             return
         if self.seg is not None:
@@ -745,8 +733,8 @@ class Engine:
                 self.toggle_outlines()
             elif a == "end_recording":
                 self.recorder.end_now()
-            elif a == "glitch":
-                self.toggle_glitch()
+            elif a == "toggle_view":
+                self.view_toggles += 1
             elif a.startswith("camera:"):
                 self.switch_camera(arg or None)
             elif a.startswith("use_loop:"):
@@ -813,7 +801,7 @@ class Engine:
 
                 # Once activated, the loop advances every frame whether or not it's on air.
                 loop_frame = self.player.next_frame() if (self.loop_running and self.player) else None
-                out = self.glitch.process(self._compose(live, loop_frame), time.monotonic())
+                out = self._compose(live, loop_frame)
                 self.output.send(out)
 
                 self._license_tick()
@@ -855,9 +843,7 @@ class Engine:
 
     def _update_sync(self, live, loop_frame, out) -> None:
         """How seamless would a cut be right now? (drives the overlay, the meter, and hold-to-sync)"""
-        if self.glitch.active:
-            target = out                      # ending the glitch / cutting reveals live here
-        elif self.loop_running and loop_frame is not None:
+        if self.loop_running and loop_frame is not None:
             target = loop_frame
         elif self.mode == "live" and self.loop_matcher is not None:
             self.sync = self.loop_matcher.update(live)  # first cut: the loop's start pose
@@ -911,18 +897,9 @@ class Engine:
         if not cal.face_visible:
             guides.put_text(prev, "Can't see your face - turn toward the camera", (20, h - 95), 0.6, brand.CV_DANGER)
 
-    def _draw_glitch_banner(self, prev: np.ndarray) -> None:
-        if self.glitch.recovering:
-            guides.banner(prev, "Connection 'recovering'...", brand.CV_AQUA_DARK)
-        elif self.mode == "loop":
-            guides.banner(prev, "Glitching - line up with the frozen picture, then cut to live", brand.CV_AMBER)
-        else:
-            guides.banner(prev, "Glitching - line up with the frozen picture, then end the glitch", brand.CV_AMBER)
-
     def render_preview(self, out: np.ndarray, live: np.ndarray, loop_frame: np.ndarray | None) -> np.ndarray:
         cfg = self.cfg
         recording = self.recorder.state in (State.COUNTDOWN, State.RECORDING)
-        glitching = self.glitch.active
         base = live if (recording or self.calibrator is not None) else out
         prev = cv2.flip(base, 1) if cfg.mirror_preview else base
         w, h = self.preview_size
@@ -934,11 +911,6 @@ class Engine:
                           brand.CV_VIOLET)
         elif recording:
             prev = self.recorder.draw(prev, cfg.mirror_preview)
-        elif glitching:
-            # Same overlay as always: your live camera see-through over the frozen picture Zoom sees.
-            prev = self._draw_offair_overlay(prev, live, "live camera", text_y=125)
-            self._draw_glitch_banner(prev)
-            self._draw_outlines(prev, live, out)
         elif cfg.show_guides and self.loop_running and loop_frame is not None:
             other = live if self.mode == "loop" else loop_frame
             prev = self._draw_offair_overlay(prev, other, "live camera" if self.mode == "loop" else "loop")
@@ -963,11 +935,9 @@ class Engine:
 
     def _draw_on_air(self, prev: np.ndarray) -> None:
         """What Zoom sees right now, impossible to miss: a pulsing ON AIR sign (top right) and a border in the
-        mode's colour - aqua LIVE, violet LOOP, amber GLITCH."""
+        mode's colour - green LIVE, apricot LOOP."""
         h, w = prev.shape[:2]
-        if self.glitch.active:
-            mode, color = "GLITCH", brand.CV_AMBER
-        elif self.mode == "loop":
+        if self.mode == "loop":
             mode, color = "LOOP", brand.CV_VIOLET
         else:
             mode, color = "LIVE", brand.CV_AQUA_DARK

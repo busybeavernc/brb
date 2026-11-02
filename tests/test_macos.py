@@ -34,14 +34,14 @@ def test_parse_hotkey():
 def test_mac_hotkeys_press_release_and_autorepeat():
     log = []
     hk = macos.MacHotkeys({"<f9>": (lambda: log.append("down"), lambda: log.append("up")),
-                           "<f10>": (lambda: log.append("glitch"), None)})
+                           "<f10>": (lambda: log.append("view"), None)})
     hk.handle(True, 101, 0)
     hk.handle(True, 101, 0, autorepeat=True)  # held: no repeats
     hk.handle(False, 101, 0)
     hk.handle(True, 109, 0)
     hk.handle(False, 109, 0)
     hk.handle(False, 101, 0)                  # stray key-up: ignored
-    assert log == ["down", "up", "glitch"]
+    assert log == ["down", "up", "view"]
 
 
 def test_mic_runner_restores_previous_volume(monkeypatch):
