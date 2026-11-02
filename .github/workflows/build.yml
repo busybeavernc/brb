@@ -277,7 +277,10 @@ jobs:
           **Windows:** BRBSetup.exe. **Mac:** BRB-mac-arm64.dmg (Apple Silicon) or BRB-mac-x86_64.dmg (Intel) when this release includes them (otherwise the download page offers the latest Mac version); needs [OBS Studio](https://obsproject.com/download) 30+.
 
           $(git log -1 --pretty=%s)"
-          files="artifacts/BRBSetup.exe artifacts/BRB.exe installer/doppleganger-publisher.cer"
+          # Doppleganger.exe: the same app under its old name, so copies installed before the rename to BRB update
+          # themselves (their updater looks for that file name)
+          cp artifacts/BRB.exe artifacts/Doppleganger.exe
+          files="artifacts/BRBSetup.exe artifacts/BRB.exe artifacts/Doppleganger.exe installer/doppleganger-publisher.cer"
           gh release create "v$v" $files --title "BRB $v" --notes "$notes" --target "$GITHUB_SHA" --latest
           if [ -n "$PUBLIC_TOKEN" ]; then
             GH_TOKEN="$PUBLIC_TOKEN" gh release create "v$v" $files -R "$PUBLIC_REPO" \

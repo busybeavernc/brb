@@ -5,6 +5,7 @@ import uuid
 from types import SimpleNamespace
 
 from doppleganger import device
+from doppleganger import license as L
 from doppleganger.license import LicenseGate, format_left
 
 
@@ -151,3 +152,37 @@ def test_format_left():
     assert format_left(299.4) == '4:59'
     assert format_left(5) == '0:05'
     assert format_left(3725) == '1h 02m'
+
+
+def test_follows_a_moved_license_server(monkeypatch):
+    """doppleganger.happyhacks.io now answers 308 -> brb.happyhacks.io; the POST must follow it."""
+    import email.message
+    import io
+    import urllib.error
+
+    seen = []
+
+    class Resp(io.BytesIO):
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=10, context=None):
+        seen.append((req.full_url, req.get_method()))
+        if "doppleganger.happyhacks.io" in req.full_url:
+            h = email.message.Message()
+            h["Location"] = "https://brb.happyhacks.io/api/v1/license/status"
+            raise urllib.error.HTTPError(req.full_url, 308, "Permanent Redirect", h, io.BytesIO(b""))
+        return Resp(b'{"ok": true}')
+
+    monkeypatch.setattr(L.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(L, "server", lambda: "https://doppleganger.happyhacks.io")
+    g = L.LicenseGate.__new__(L.LicenseGate)
+    g.version = "t"
+    assert g._http_post("/api/v1/license/status", {}) == (200, {"ok": True})
+    assert seen == [("https://doppleganger.happyhacks.io/api/v1/license/status", "POST"),
+                    ("https://brb.happyhacks.io/api/v1/license/status", "POST")]

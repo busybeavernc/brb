@@ -209,17 +209,24 @@ class LicenseGate:
                 "app_version": self.version, "key": self.key, **extra}
 
     def _http_post(self, path: str, body: dict) -> tuple[int, dict]:
-        req = urllib.request.Request(server() + path, data=json.dumps(body).encode(), method="POST",
-                                     headers={"Content-Type": "application/json", "Accept": "application/json",
-                                              "User-Agent": f"Doppleganger/{self.version}"})
-        try:
-            with urllib.request.urlopen(req, timeout=10, context=_ssl_context()) as r:
-                return r.status, json.loads(r.read() or b"{}")
-        except urllib.error.HTTPError as e:
+        url = server() + path
+        for _hop in range(3):   # follow a moved site (307/308 keep the POST); Python's urllib won't for a POST
+            req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                         headers={"Content-Type": "application/json", "Accept": "application/json",
+                                                  "User-Agent": f"BRB/{self.version}"})
             try:
-                return e.code, json.loads(e.read() or b"{}")
-            except ValueError:
-                return e.code, {}
+                with urllib.request.urlopen(req, timeout=10, context=_ssl_context()) as r:
+                    return r.status, json.loads(r.read() or b"{}")
+            except urllib.error.HTTPError as e:
+                target = e.headers.get("Location") if e.code in (301, 302, 307, 308) else None
+                if target and target.startswith("https://") and target.split("/")[2].endswith("happyhacks.io"):
+                    url = target
+                    continue
+                try:
+                    return e.code, json.loads(e.read() or b"{}")
+                except ValueError:
+                    return e.code, {}
+        return 508, {}
 
     def _call(self, kind: str, action: str) -> None:
         sent_at = time.monotonic()

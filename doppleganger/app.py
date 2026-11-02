@@ -28,7 +28,8 @@ def main() -> None:
         rc = selftest()
         os._exit(rc)  # skip interpreter teardown (MediaPipe complains noisily during it)
 
-    logging.basicConfig(filename="doppleganger.log", filemode="w", level=logging.INFO,
+    helper = args.install_camera or args.remove_camera   # run by the installer: keep the app's own log intact
+    logging.basicConfig(filename="doppleganger-setup.log" if helper else "doppleganger.log", filemode="w", level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     log.info("BRB v%s starting in %s", updater.current_version(), os.getcwd())
 
@@ -36,19 +37,25 @@ def main() -> None:
         splash.close()  # started at sign-in: stay out of the way
     if args.install_camera:  # used by the installer: the camera is ready before the app first opens
         splash.close()
-        if vcamlib.bundled() and vcamlib.needs_install():
-            ok, detail = vcamlib.install()
-            log.info("Camera install (installer): %s (%s)", ok, detail)
-            if ok:
-                cfg0 = Config.load(args.config)
-                cfg0.driver_auto_install = vcamlib.DRIVER_VERSION
-                cfg0.save(args.config)
+        try:   # never stop the installer with an error box: the app offers the camera again when it opens
+            if vcamlib.bundled() and vcamlib.needs_install():
+                ok, detail = vcamlib.install()
+                log.info("Camera install (installer): %s (%s)", ok, detail)
+                if ok:
+                    cfg0 = Config.load(args.config)
+                    cfg0.driver_auto_install = vcamlib.DRIVER_VERSION
+                    cfg0.save(args.config)
+        except Exception:  # noqa: BLE001
+            log.exception("Camera install (installer) failed")
         return
     if args.remove_camera:  # used by the uninstaller
         splash.close()
-        if vcamlib.installed_version() is not None:
-            ok, detail = vcamlib.uninstall()
-            log.info("Camera removal: %s (%s)", ok, detail)
+        try:   # never stop the uninstaller with an error box
+            if vcamlib.installed_version() is not None:
+                ok, detail = vcamlib.uninstall()
+                log.info("Camera removal: %s (%s)", ok, detail)
+        except Exception:  # noqa: BLE001
+            log.exception("Camera removal failed")
         return
 
     cfg = Config.load(args.config)

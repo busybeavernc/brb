@@ -628,7 +628,11 @@ class MainWindow:
         lic = self.e.lic
         left = lic.remaining()
         on_air = self.e.mode == "loop"
-        if left is not None and left <= WARN_AT and (on_air or left <= 0.5):
+        if not lic.known:   # no answer from the license server yet: don't claim the free time is used up
+            self.lic_lbl.configure(text=lic.summary() if lic.online or not lic.message else
+                                   "License: can't reach brb.happyhacks.io - check your internet connection",
+                                   fg=WARN_TEXT if lic.message else MUTED, font=F(9))
+        elif left is not None and left <= WARN_AT and (on_air or left <= 0.5):
             text = (f"⏱ {format_left(left)} of free LOOP time left" if left > 0.5 else
                     "Free LOOP time used up - get a license key for unlimited use")
             self.lic_lbl.configure(text=text, fg=BAD_TEXT if left <= 30 else WARN_TEXT, font=F(10, "bold"))
@@ -636,7 +640,7 @@ class MainWindow:
             self.lic_lbl.configure(text=lic.summary(), fg=OK_TEXT if lic.unlimited else MUTED, font=F(9))
         if lic.unlimited and self.lic_btn.winfo_ismapped():
             self.lic_btn.pack_forget()
-        elif not lic.unlimited and lic.known and not self.lic_btn.winfo_ismapped():
+        elif not lic.unlimited and not self.lic_btn.winfo_ismapped():   # also before the server answers
             self.lic_btn.pack(side="right")
 
     def open_license(self) -> None:

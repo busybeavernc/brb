@@ -96,10 +96,15 @@ def _run_elevated_script(body: str, timeout: float = 120.0) -> tuple[bool, str]:
     t0 = time.monotonic()
     while time.monotonic() - t0 < timeout:
         if os.path.exists(marker):
-            time.sleep(0.2)
-            with open(marker, encoding="utf-8", errors="ignore") as f:
-                code = f.read().strip()
-            return code == "0", f"exit code {code}"
+            # The elevated script may still be writing (and holding) the file: Windows then refuses to open it
+            # ("Permission denied"). Keep trying until it's free and has the exit code in it.
+            try:
+                with open(marker, encoding="utf-8", errors="ignore") as f:
+                    code = f.read().strip()
+            except OSError:
+                code = ""
+            if code:
+                return code == "0", f"exit code {code}"
         time.sleep(0.25)
     return False, "Timed out waiting for the installer."
 
