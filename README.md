@@ -136,6 +136,8 @@ Zoom can select it any time. Whenever the Doppleganger app isn't running (not st
 
 ## Development
 
+**Releases:** every push runs the tests only. To build and publish a new version (Windows installer and both Mac apps), go to GitHub → **Actions → Build → Run workflow**, or push a commit whose message contains `[release]`. Installed copies update themselves to the new version the next time they open.
+
 ```
 pip install -r requirements.txt pytest
 python -m pytest tests
