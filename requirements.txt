@@ -7,3 +7,4 @@ pystray>=0.19; sys_platform != "darwin"    # tray icon (Mac: Dock icon)
 pyobjc-framework-Quartz>=10; sys_platform == "darwin"       # Mac: global hotkeys
 pyobjc-framework-Cocoa>=10; sys_platform == "darwin"        # Mac: webcam names, camera permission, hide from sharing
 Pillow>=10
+certifi>=2024.2              # trusted certificates for the license server (bundled, not the system's)

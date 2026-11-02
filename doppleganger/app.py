@@ -103,6 +103,8 @@ def selftest() -> int:
     check("ai-segmentation", seg)
     check("pyvirtualcam", lambda: __import__("pyvirtualcam").__version__)
     check("cameras", lambda: vcamlib.list_cameras())
+    check("device-id", lambda: __import__("doppleganger.device", fromlist=["x"]).device_id()[:12] + "...")
+    check("certifi", lambda: __import__("certifi").where())
 
     def tk():
         import tkinter

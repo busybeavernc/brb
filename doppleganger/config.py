@@ -42,6 +42,7 @@ class Config:
     auto_update: bool = True            # check GitHub Releases each time the app opens
     update_repo: str = "busybeavernc/doppleganger-public"  # public downloads (the code repo may be private)
     update_token: str = ""              # read-only GitHub token, needed only while the repo is private
+    license_key: str = ""               # Doppleganger license key (checked with doppleganger.happyhacks.io)
 
     # Privacy
     mute_mic_on_loop: bool = True       # silence: mute the PC's microphones while the LOOP is on air

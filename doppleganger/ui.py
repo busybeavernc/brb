@@ -18,6 +18,7 @@ from PIL import Image, ImageTk
 from . import brand, library, macos, updater, winutil
 from .brand import AMBER, AQUA, BORDER, CLOUD, DANGER, MIDNIGHT, MUTED, SURFACE, SURFACE_HI, VIOLET, VIOLET_DARK
 from .cutcontrol import SYNC_THRESHOLD
+from .license import WARN_AT, format_left
 from .recorder import State
 
 IS_MAC = sys.platform == "darwin"
@@ -191,6 +192,7 @@ class MainWindow:
         self.settings: SettingsWindow | None = None
         self.busy: BusyDialog | None = None
         self.tips: RecordTipsDialog | None = None
+        self.license_dlg: LicenseDialog | None = None
         engine.ui_attached = True  # Record shows the tips first
         # Mac: is OBS Studio + its virtual camera installed? (checked in the background, every few seconds)
         self.obs = {"obs": True, "camera": "unknown", "ready": True, "message": ""}
@@ -227,6 +229,12 @@ class MainWindow:
                                    padx=8, pady=6)
         self.out_lbl = ttk.Label(side, text="", style="Small.TLabel", wraplength=px(300), justify="left")
         self.out_lbl.grid(sticky="w", pady=(6, 0))
+        # license: free LOOP time left / countdown, and Get License Key until a key is applied
+        licrow = ttk.Frame(side)
+        licrow.grid(sticky="ew", pady=(6, 0))
+        self.lic_lbl = tk.Label(licrow, text="", bg=MIDNIGHT, fg=MUTED, font=F(9), anchor="w", justify="left")
+        self.lic_lbl.pack(side="left")
+        self.lic_btn = ttk.Button(licrow, text="Get License Key", style="Accent.TButton", command=self.open_license)
         # Mac only, while OBS or its camera is missing (beside the LIVE badge, so the panel doesn't grow)
         self.obs_btn = ttk.Button(top, text="Get OBS Studio (free)", style="Accent.TButton",
                                   command=self.open_obs_help)
@@ -378,7 +386,7 @@ class MainWindow:
     def apply_capture_setting(self) -> None:
         hide = self.cfg.hide_from_screen_share
         for w in (self.root, self.minibar and self.minibar.win, self.wizard and self.wizard.win,
-                  self.settings and self.settings.win):
+                  self.settings and self.settings.win, self.license_dlg and self.license_dlg.alive and self.license_dlg.win):
             if w is not None:
                 try:
                     winutil.hide_from_capture(w, hide)
@@ -491,6 +499,7 @@ class MainWindow:
                                ("Stitching..." if rec == State.PROCESSING else "Record loop"))
         if self.v_outlines.get() != self.cfg.show_outlines:
             self.v_outlines.set(self.cfg.show_outlines)
+        self._refresh_license()
         warn = e.lighting_warning
         self.light_lbl.configure(text=f"⚠ {warn}" if warn else "")
         if e.library_version != self._lib_version:
@@ -534,6 +543,26 @@ class MainWindow:
             macos.open_obs_download()
         else:
             self.open_wizard(page="camera")
+
+    def _refresh_license(self) -> None:
+        lic = self.e.lic
+        left = lic.remaining()
+        on_air = self.e.mode == "loop"
+        if left is not None and left <= WARN_AT and (on_air or left <= 0.5):
+            text = (f"⏱ {format_left(left)} of free LOOP time left" if left > 0.5 else
+                    "Free LOOP time used up - get a license key for unlimited use")
+            self.lic_lbl.configure(text=text, fg=DANGER if left <= 30 else AMBER, font=F(10, "bold"))
+        else:
+            self.lic_lbl.configure(text=lic.summary(), fg=AQUA if lic.unlimited else MUTED, font=F(9))
+        if lic.unlimited and self.lic_btn.winfo_ismapped():
+            self.lic_btn.pack_forget()
+        elif not lic.unlimited and lic.known and not self.lic_btn.winfo_ismapped():
+            self.lic_btn.pack(side="right")
+
+    def open_license(self) -> None:
+        if self.license_dlg is None or not self.license_dlg.alive:
+            self.license_dlg = LicenseDialog(self)
+        self.license_dlg.win.lift()
 
     def change_text_size(self, step: int) -> None:
         """step +1 / -1 = one size larger / smaller, 0 = back to normal."""
@@ -731,6 +760,96 @@ class RecordTipsDialog:
         self.win.destroy()
 
 
+class LicenseDialog:
+    """Get License Key: what the free time is, where to get a key, and a box to paste it in."""
+
+    def __init__(self, main: "MainWindow"):
+        self.main, self.e = main, main.e
+        self.lic = main.e.lic
+        self.alive = True
+        self.win = tk.Toplevel(main.root)
+        self.win.title("Doppleganger license")
+        self.win.resizable(False, False)
+        self.win.configure(bg=MIDNIGHT)
+        self.win.transient(main.root)
+        self.win.protocol("WM_DELETE_WINDOW", self.close)
+        f = ttk.Frame(self.win, padding=(26, 20))
+        f.pack()
+        ttk.Label(f, text="License key", style="Title.TLabel").pack(anchor="w")
+        free = format_left(self.lic.free_total) if self.lic.free_total < 3600 else \
+            f"{int(self.lic.free_total // 3600)} hour{'s' if self.lic.free_total >= 7200 else ''}"
+        ttk.Label(f, text=f"Every computer gets {free} of free LOOP time (it only counts while the LOOP is on air). "
+                          f"A license key gives you unlimited LOOP time: {self.lic.price}/month, cancel any time.",
+                  wraplength=px(440), justify="left").pack(anchor="w", pady=(6, 4))
+        self.offer_lbl = ttk.Label(f, text="", wraplength=px(440), justify="left", foreground=AQUA)
+        self.offer_lbl.pack(anchor="w")
+        self.now_lbl = ttk.Label(f, text="", style="Small.TLabel")
+        self.now_lbl.pack(anchor="w", pady=(4, 12))
+        ttk.Button(f, text="Get a license key on doppleganger.happyhacks.io", style="Accent.TButton",
+                   command=self._open_site).pack(anchor="w")
+        ttk.Label(f, text="Already have a key? Paste it here:", style="Head.TLabel").pack(anchor="w", pady=(18, 4))
+        row = ttk.Frame(f)
+        row.pack(fill="x")
+        self.var = tk.StringVar(value=self.lic.key)
+        ent = ttk.Entry(row, textvariable=self.var, width=30, font=F(11))
+        ent.pack(side="left")
+        ent.bind("<Return>", lambda _e: self._apply())
+        ttk.Button(row, text="Apply", command=self._apply).pack(side="left", padx=8)
+        self.result = ttk.Label(f, text="", wraplength=px(440), justify="left")
+        self.result.pack(anchor="w", pady=(10, 0))
+        bottom = ttk.Frame(f)
+        bottom.pack(fill="x", pady=(16, 0))
+        self.remove_btn = ttk.Button(bottom, text="Remove the key from this computer", command=self._remove)
+        ttk.Button(bottom, text="Close", command=self.close).pack(side="right")
+        self._applied = False
+        self._tick()
+        main.root.after(150, main.apply_capture_setting)
+        ent.focus_set()
+
+    def _open_site(self):
+        import webbrowser
+        webbrowser.open(self.lic.license_url)
+
+    def _apply(self):
+        key = self.var.get().strip()
+        if not key:
+            return
+        self._applied = True
+        self.result.configure(text="Checking the key...", foreground=MUTED)
+        self.lic.apply_key(key)
+
+    def _remove(self):
+        if messagebox.askyesno("Remove license key?", "Remove the license key from this computer?\n\n"
+                               "Doppleganger goes back to free LOOP time. The key stays assigned to this computer; "
+                               "to move it to another one, contact support.", parent=self.win):
+            self.var.set("")
+            self.lic.remove_key()
+
+    def _tick(self):
+        if not self.alive:
+            return
+        lic = self.lic
+        self.now_lbl.configure(text="Now: " + lic.summary())
+        self.offer_lbl.configure(text=f"50% off: subscribe now, while you still have free time, for {lic.early_price}/month "
+                                      "for as long as you stay subscribed." if lic.offer and not lic.unlimited else "")
+        if self._applied:
+            if lic.unlimited:
+                self.result.configure(text="✓ License applied. Unlimited LOOP time on this computer.", foreground=AQUA)
+            elif lic.key_problem:
+                self.result.configure(text=lic.key_problem, foreground=DANGER)
+            elif not lic.online and lic.message:
+                self.result.configure(text=lic.message, foreground=DANGER)
+        if lic.key and not self.remove_btn.winfo_ismapped():
+            self.remove_btn.pack(side="left")
+        elif not lic.key and self.remove_btn.winfo_ismapped():
+            self.remove_btn.pack_forget()
+        self.win.after(300, self._tick)
+
+    def close(self):
+        self.alive = False
+        self.win.destroy()
+
+
 class BusyDialog:
     """Modal 'Stitching your new loop...' with progress. Blocks the window until the loop is ready."""
 
@@ -800,6 +919,13 @@ class SettingsWindow:
         ttk.Button(ts, text="Reset", command=lambda: main.change_text_size(0)).pack(side="left", padx=(8, 0))
         key = "Cmd" if IS_MAC else "Ctrl"
         ttk.Label(ts, text=f"or {key} +  /  {key} −", style="Small.TLabel").pack(side="left", padx=(12, 0))
+
+        ttk.Label(f, text="License", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
+        lr = ttk.Frame(f)
+        lr.grid(sticky="ew")
+        self.lic_lbl = ttk.Label(lr, text="", style="Small.TLabel")
+        self.lic_lbl.pack(side="left")
+        ttk.Button(lr, text="License key...", command=main.open_license).pack(side="right")
 
         ttk.Label(f, text="Privacy", style="Head.TLabel").grid(sticky="w", pady=(4, 2))
         self.v_mute = tk.BooleanVar(value=self.cfg.mute_mic_on_loop)
@@ -912,6 +1038,8 @@ class SettingsWindow:
         if not self.alive:
             return
         self.text_pct.configure(text=f"{int(round(self.cfg.text_scale * 100))}%")
+        lic = self.e.lic
+        self.lic_lbl.configure(text=lic.summary() + (f"  ·  key {lic.key[-4:]}" if lic.key and lic.unlimited else ""))
         self.v_guides.set(self.cfg.show_guides)
         self.v_outlines.set(self.cfg.show_outlines)
         if IS_MAC:
@@ -1008,7 +1136,10 @@ class MiniBar:
     def refresh(self, rgb) -> None:
         e = self.e
         mode = "glitch" if e.glitch.active else e.mode
-        self.state_lbl.configure(text=mode.upper(), bg=MODE_BG[mode], fg=MODE_FG[mode])
+        left = e.lic.remaining() if e.mode == "loop" else None
+        label = mode.upper() + (f"  ·  {format_left(left)}" if left is not None and left <= WARN_AT else "")
+        self.state_lbl.configure(text=label, bg=AMBER if left is not None and left <= WARN_AT else MODE_BG[mode],
+                                 fg=MIDNIGHT if left is not None and left <= WARN_AT else MODE_FG[mode])
         insync = e.sync >= SYNC_THRESHOLD
         self.sync.configure(value=int(e.sync * 100),
                             style="InSync.Horizontal.TProgressbar" if insync else "Sync.Horizontal.TProgressbar")

@@ -27,6 +27,7 @@ from .player import LoopPlayer, latest_loop
 from .recorder import Recorder, State
 from .silhouette import Silhouette, glow_amount
 from . import macos
+from .license import LicenseGate, format_left
 from .tray import start_tray
 from . import brand
 
@@ -167,6 +168,8 @@ class Engine:
         say("Loading your loops...", 0.85)
         self.recorder.segmenter = self.seg
         self.mic = MicMuter()
+        # LOOP time: free hour per computer or a license key, leased from doppleganger.happyhacks.io
+        self.lic = LicenseGate(cfg, lambda: cfg.save(config_path), updater.current_version())
         self.cut = CutController()
         self.mode = "live"
         self.fade_from: str | None = None
@@ -395,6 +398,11 @@ class Engine:
             self.notify("Finish recording/calibrating first.")
             return
         new = "loop" if self.mode == "live" else "live"
+        if new == "loop":
+            ok, why = self.lic.can_start()
+            if not ok:
+                self.notify(why, 8)
+                return
         if new == "loop" and not self.loop_running:
             # First activation starts at frame 1 (your start pose). From then on the loop
             # keeps playing in the background and is never restarted by a cut.
@@ -408,6 +416,34 @@ class Engine:
             self.fade_from, self.fade_start = self.mode, time.monotonic()
         self.mode = new
         self._apply_mic()
+
+    def _license_tick(self) -> None:
+        """Every frame: keep LOOP time leased while the LOOP is on air; at 0:00 (or offline) cut back to LIVE."""
+        on = self.mode == "loop"
+        self.lic.on_air(on)
+        if self.lic.unlimited != getattr(self, "_was_unlimited", self.lic.unlimited):
+            if self.lic.unlimited:
+                self.notify("License applied - unlimited LOOP time. Thank you!", 6)
+        self._was_unlimited = self.lic.unlimited
+        if not on:
+            return
+        why = self.lic.must_stop()
+        if why:
+            self._force_live(why)
+        elif self.lic.warn_now():
+            self.notify("5 minutes of free LOOP time left - then Doppleganger cuts back to LIVE. "
+                        "Click Get License Key for unlimited use.", 12)
+            log.info("Free LOOP time: 5 minutes left")
+
+    def _force_live(self, why: str) -> None:
+        """Cut to LIVE now, whatever else is going on (free time used up, or no connection to the license server)."""
+        log.info("Cut to LIVE by licensing: %s", why)
+        if self.glitch.active:
+            self.glitch.recover(time.monotonic(), delay=0.0, clean_jump=True)
+        self.fade_from = None
+        self.mode = "live"
+        self._apply_mic()
+        self.notify(why, 15)
 
     def _apply_mic(self) -> None:
         """Silence while the LOOP is on air (if enabled); your mic is back the moment you're live."""
@@ -661,6 +697,7 @@ class Engine:
                 out = self.glitch.process(self._compose(live, loop_frame), time.monotonic())
                 self.output.send(out)
 
+                self._license_tick()
                 self._update_sync(live, loop_frame, out)
                 if self.cut.tick(time.monotonic(), self.sync) == "cut":
                     self.toggle()
@@ -796,6 +833,9 @@ class Engine:
             self._draw_outlines(prev, live, self.player.first_frame if self.player else None)
         if self.cut.waiting:
             guides.banner(prev, f"Hold to sync - cutting when in sync ({int(self.sync * 100)}%)", brand.CV_VIOLET)
+        left = self.lic.remaining() if self.mode == "loop" else None
+        if left is not None and left <= 30:
+            guides.banner(prev, f"Free LOOP time ends in {format_left(left)} - then back to LIVE", brand.CV_AMBER)
         return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB)
 
     def close(self) -> None:
@@ -805,6 +845,8 @@ class Engine:
         self.running = False
         self.mic.restore()
         self.mic.flush()
+        if getattr(self, "lic", None):
+            self.lic.close()
         if getattr(self, "_hk", None):
             self._hk.stop()
         if getattr(self, "_tray", None):
