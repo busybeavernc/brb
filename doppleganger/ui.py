@@ -114,10 +114,14 @@ def apply_theme(root: tk.Misc) -> None:
     s.configure("Accent.TButton", background=TEAL, foreground=IVORY, bordercolor=TEAL,
                 lightcolor=TEAL, darkcolor=TEAL, focuscolor=TEAL)
     s.map("Accent.TButton", background=[("pressed", TEAL_DARK), ("active", TEAL_DARK)], foreground=[("disabled", BORDER)])
+    # clam draws the box in indicatorbackground and the tick in indicatorforeground: ticked = teal box, ivory tick
     s.configure("TCheckbutton", background=MIDNIGHT, foreground=CLOUD, indicatorbackground=SURFACE,
-                indicatorforeground=CLOUD, indicatorcolor=SURFACE, focuscolor=MIDNIGHT)
-    s.map("TCheckbutton", indicatorcolor=[("selected", TEAL)], indicatorforeground=[("selected", IVORY)],
-          background=[("active", MIDNIGHT)])
+                indicatorforeground=TEAL, upperbordercolor=MUTED, lowerbordercolor=MUTED, focuscolor=MIDNIGHT,
+                indicatormargin=(0, 0, 6, 0), indicatorsize=14)
+    s.map("TCheckbutton", indicatorbackground=[("disabled", MIDNIGHT), ("selected", TEAL), ("pressed", SURFACE_HI)],
+          indicatorforeground=[("selected", IVORY)], upperbordercolor=[("selected", TEAL)],
+          lowerbordercolor=[("selected", TEAL)], background=[("active", MIDNIGHT)],
+          foreground=[("disabled", MUTED)])
     s.configure("TCombobox", fieldbackground=SURFACE, background=SURFACE, foreground=CLOUD, arrowcolor=CLOUD,
                 bordercolor=BORDER, lightcolor=SURFACE, darkcolor=SURFACE, padding=(8, 5))
     s.map("TCombobox", fieldbackground=[("readonly", SURFACE)], foreground=[("readonly", CLOUD)],
@@ -233,7 +237,7 @@ class MainWindow:
             ttk.Button(bar, text=text, style="Tool.TButton", command=cmd).pack(side="left", padx=(0, 4))
         view = ttk.Menubutton(bar, text="View", style="Tool.TMenubutton", width=6)
         self.view_menu = tk.Menu(view, tearoff=0, bg=SURFACE, fg=CLOUD, activebackground=SURFACE_HI,
-                                 activeforeground=CLOUD, font=F(10))
+                                 activeforeground=CLOUD, selectcolor=TEAL, font=F(10))
         self.v_view = tk.StringVar(value="normal")
         self.view_menu.add_radiobutton(label="Normal", value="normal", variable=self.v_view, command=self.show_main)
         self.view_menu.add_radiobutton(label="Mini Bar", value="mini", variable=self.v_view, command=self.show_minibar)
