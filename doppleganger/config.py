@@ -43,6 +43,7 @@ class Config:
     auto_update: bool = True            # check GitHub Releases each time the app opens
     update_repo: str = "busybeavernc/doppleganger-public"  # public downloads (the code repo may be private)
     update_token: str = ""              # read-only GitHub token, needed only while the repo is private
+    eula_accepted: str = ""             # EULA version accepted (asked again only when the EULA changes)
     license_key: str = ""               # Doppleganger license key (checked with doppleganger.happyhacks.io)
 
     # Privacy

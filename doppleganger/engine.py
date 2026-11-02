@@ -284,7 +284,7 @@ class Engine:
             return
         if ask and not self.ask(
                 "Add the HappyHacks Virtual Camera?",
-                "Doppleganger can add its own camera, named \"HappyHacks Virtual Camera\", that Zoom, Teams and "
+                "Doppleganger can add its own camera, named \"HappyHacks Virtual Camera\", that your meeting apps and "
                 "browsers can use - no OBS Studio needed.\n\nWindows will ask for permission once.\n\n"
                 "Install it now?"):
             return
@@ -302,7 +302,7 @@ class Engine:
 
     def uninstall_driver(self) -> None:
         if not self.ask("Remove the HappyHacks Virtual Camera?",
-                        "Zoom and other apps will no longer see the \"HappyHacks Virtual Camera\".\n\nRemove it?"):
+                        "Your meeting apps will no longer see the \"HappyHacks Virtual Camera\".\n\nRemove it?"):
             return
         self.output.close()  # release our handle on the DLL first
 
@@ -402,6 +402,9 @@ class Engine:
             self.notify("Finish recording/calibrating first.")
             return
         new = "loop" if self.mode == "live" else "live"
+        if new == "loop" and self.ui_attached and not self.cfg.eula_accepted:
+            self.notify("Accept the license agreement first.", 6)
+            return
         if new == "loop":
             ok, why = self.lic.can_start()
             if not ok:
@@ -656,7 +659,7 @@ class Engine:
                 self.uninstall_driver()
             elif a == "driver_installed":
                 self.output.reconnect()
-                self.notify("HappyHacks Virtual Camera installed - choose \"HappyHacks Virtual Camera\" as your camera in Zoom.", 10)
+                self.notify("HappyHacks Virtual Camera installed - choose \"HappyHacks Virtual Camera\" as your camera in your meeting app.", 10)
             elif a == "output_reconnect":
                 self.output.reconnect()
             elif a == "update":

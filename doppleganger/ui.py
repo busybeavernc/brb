@@ -206,6 +206,7 @@ class MainWindow:
         self.busy: BusyDialog | None = None
         self.tips: RecordTipsDialog | None = None
         self.license_dlg: LicenseDialog | None = None
+        self.eula_dlg: EulaDialog | None = None
         engine.ui_attached = True  # Record shows the tips first
         # Mac: is OBS Studio + its virtual camera installed? (checked in the background, every few seconds)
         self.obs = {"obs": True, "camera": "unknown", "ready": True, "message": ""}
@@ -558,7 +559,7 @@ class MainWindow:
             self.out_lbl.configure(text=f"● Sending to {name}" + ("  ·  in use" if o.viewer_connected else ""),
                                    foreground=AQUA)
         else:
-            self.out_lbl.configure(text=f"● Not sending to Zoom: {o.error}", foreground=DANGER)
+            self.out_lbl.configure(text=f"● Not sending to your meeting: {o.error}", foreground=DANGER)
         if IS_MAC:
             need = not self.obs["ready"] and not o.connected
             if need:
@@ -698,7 +699,7 @@ class MainWindow:
     # ---------- lifecycle ----------
     def on_close(self, force: bool = False) -> None:
         if not force and self.e.mode == "loop" and not messagebox.askyesno(
-                "Quit Doppleganger?", "The LOOP is on air. Quitting stops the picture Zoom sees.\n\nQuit?",
+                "Quit Doppleganger?", "The LOOP is on air. Quitting stops the picture your meeting sees.\n\nQuit?",
                 parent=self.root):
             return
         self.e.stop()
@@ -719,6 +720,18 @@ class MainWindow:
             self.root.after(300, self.root.iconify)  # started with Windows: stay out of the way
         elif self.cfg.mini_bar:
             self.root.after(300, self.show_minibar)
+        if self.cfg.eula_accepted != EULA_VERSION:
+            if self._start_minimized:
+                self.root.after(350, self.root.deiconify)   # the agreement needs the window
+            self.root.after(500, lambda: setattr(self, "eula_dlg", EulaDialog(self)))
+        else:
+            self.root.after(0, self.after_eula)
+        self.root.mainloop()
+        self.e.stop()
+        self._engine_thread.join(timeout=5)
+
+    def after_eula(self) -> None:
+        """What happens once the license agreement is accepted: the setup guide or the Mac permissions page."""
         if not self.cfg.setup_done:
             camera_ok = macos.obs_status()["ready"] if IS_MAC else self.e.tray_driver_installed()
             if self.e.player is not None and camera_ok:
@@ -729,9 +742,6 @@ class MainWindow:
         elif IS_MAC and not self.cfg.mac_permissions_seen:
             # set up with an earlier version: walk through the Mac permissions once
             self.root.after(800, lambda: self.open_wizard(page="permissions"))
-        self.root.mainloop()
-        self.e.stop()
-        self._engine_thread.join(timeout=5)
 
 
 RECORD_TIPS = (
@@ -801,6 +811,77 @@ class ScrollArea(tk.Frame):
     def _wheel(self, ev):
         if self.bar.winfo_ismapped():
             self.canvas.yview_scroll(-int(ev.delta / 120) * 2 if abs(ev.delta) >= 120 else (-2 if ev.delta > 0 else 2), "units")
+
+
+EULA_VERSION = "1"   # bump when assets/EULA.md changes in a way people must accept again
+EULA_URL = "https://doppleganger.happyhacks.io/eula"
+
+
+def eula_text() -> str:
+    """The bundled EULA (Markdown) as readable plain text."""
+    import re as _re
+    try:
+        with open(brand.asset("EULA.md"), encoding="utf-8") as fh:
+            md = fh.read()
+    except OSError:
+        return f"The license agreement is at {EULA_URL}"
+    md = _re.sub(r"^#+\s*", "", md, flags=_re.M)          # headings
+    md = md.replace("**", "")
+    return md.strip()
+
+
+class EulaDialog:
+    """First run (and whenever the EULA changes): read and accept the license agreement, or quit."""
+
+    def __init__(self, main: "MainWindow"):
+        self.main = main
+        self.win = tk.Toplevel(main.root)
+        self.win.title("Doppleganger license agreement")
+        self.win.configure(bg=MIDNIGHT)
+        self.win.transient(main.root)
+        self.win.protocol("WM_DELETE_WINDOW", self.decline)
+        f = ttk.Frame(self.win, padding=(24, 18))
+        f.pack(fill="both", expand=True)
+        ttk.Label(f, text="Before you start", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(f, text="Doppleganger is for short, courteous breaks from video meetings - a restroom break, a coffee "
+                          "refill - without distracting anyone. It's not for faking attendance or getting around "
+                          "attendance checks, identity checks, exams or meetings that require your live presence. "
+                          "Please read and accept the license agreement:",
+                  wraplength=px(560), justify="left").pack(anchor="w", pady=(6, 10))
+        box = ttk.Frame(f)
+        box.pack(fill="both", expand=True)
+        txt = tk.Text(box, wrap="word", width=78, height=18, bg=SURFACE, fg=CLOUD, relief="flat", padx=12, pady=10,
+                      font=F(9), highlightthickness=0, insertbackground=CLOUD)
+        sb = ttk.Scrollbar(box, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=sb.set)
+        txt.insert("1.0", eula_text())
+        txt.configure(state="disabled")
+        txt.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        row = ttk.Frame(f)
+        row.pack(fill="x", pady=(12, 0))
+        ttk.Button(row, text="Read it online", command=lambda: __import__("webbrowser").open(EULA_URL)).pack(side="left")
+        ttk.Button(row, text="I Agree", style="Accent.TButton", command=self.accept).pack(side="right")
+        ttk.Button(row, text="Decline", command=self.decline).pack(side="right", padx=8)
+        center_on(self.win, main.root)
+        try:
+            self.win.grab_set()
+        except tk.TclError:
+            pass
+        self.win.after(150, main.apply_capture_setting)
+
+    def accept(self):
+        self.main.cfg.eula_accepted = EULA_VERSION
+        self.main.cfg.save(self.main.e.config_path)
+        self.win.grab_release()
+        self.win.destroy()
+        self.main.eula_dlg = None
+        self.main.after_eula()
+
+    def decline(self):
+        self.win.grab_release()
+        self.win.destroy()
+        self.main.e.stop()   # Doppleganger can't be used without accepting
 
 
 class RecordTipsDialog:
@@ -1051,6 +1132,7 @@ class SettingsWindow:
         self.lic_lbl = ttk.Label(lr, text="", style="Small.TLabel")
         self.lic_lbl.pack(side="left")
         ttk.Button(lr, text="License key...", command=main.open_license).pack(side="right")
+        ttk.Button(lr, text="EULA", command=lambda: __import__("webbrowser").open(EULA_URL)).pack(side="right", padx=6)
 
         ttk.Label(f, text="Privacy", style="Head.TLabel").grid(sticky="w", pady=(4, 2))
         self.v_mute = tk.BooleanVar(value=self.cfg.mute_mic_on_loop)
@@ -1093,11 +1175,11 @@ class SettingsWindow:
         self.len_note = ttk.Label(rl, text="seconds (60-600, default 90)", style="Small.TLabel")
         self.len_note.pack(side="left")
 
-        ttk.Label(f, text="Hotkeys (work while Zoom is focused)", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
+        ttk.Label(f, text="Hotkeys (work while your meeting app is in front)", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
         hk, gk = self.cfg.hotkey.strip("<>").upper(), self.cfg.glitch_hotkey.strip("<>").upper()
         if IS_MAC:
             hk, gk = f"fn+{hk}", f"fn+{gk}"
-        ttk.Label(f, text=f"{hk}: tap = cut now, hold = cut when in sync     {gk}: fake a bad connection",
+        ttk.Label(f, text=f"{hk}: tap = cut now, hold = cut when in sync     {gk}: glitch effect",
                   style="Small.TLabel").grid(sticky="w")
         if IS_MAC:
             mac_hk = ttk.Frame(f)
@@ -1119,7 +1201,7 @@ class SettingsWindow:
                   style="Head.TLabel").grid(sticky="w", pady=(12, 2))
         self.v_startup = tk.BooleanVar(value=winutil.starts_with_windows())
         self.startup_chk = ttk.Checkbutton(
-            f, text=f"Start Doppleganger (minimized) {WHEN_STARTS} - so Zoom always gets a picture",
+            f, text=f"Start Doppleganger (minimized) {WHEN_STARTS} - so your meeting app always gets a picture",
             variable=self.v_startup, command=self._startup_changed)
         self.startup_chk.grid(sticky="w")
         if winutil.startup_command() is None:
@@ -1199,13 +1281,13 @@ class SettingsWindow:
         self.v_outlines.set(self.cfg.show_outlines)
         if IS_MAC:
             st = self.main.obs
-            self.drv_lbl.configure(text=("OBS Virtual Camera ready ✓ - choose it in Zoom" if st["ready"]
+            self.drv_lbl.configure(text=("OBS Virtual Camera ready ✓ - choose it in your meeting app" if st["ready"]
                                          else st["message"]))
             self.drv_btn.configure(text="Get OBS Studio" if not st["obs"] else "Setup steps",
                                    state="disabled" if st["ready"] else "normal")
             return
         installed = self.e.tray_driver_installed()
-        self.drv_lbl.configure(text="Installed ✓ - choose \"HappyHacks Virtual Camera\" in Zoom" if installed
+        self.drv_lbl.configure(text="Installed ✓ - choose \"HappyHacks Virtual Camera\" in your meeting app" if installed
                                else "Not installed")
         self.drv_btn.configure(text="Remove" if installed else "Install",
                                state="normal" if (installed or self.e.tray_driver_available()) else "disabled")
@@ -1405,7 +1487,8 @@ class Wizard:
     def _page_welcome(self):
         tk.Label(self.body, image=self._logo, bg=MIDNIGHT).pack(anchor="w", pady=(4, 18))
         self._para("Doppleganger records a short, seamless loop of you, then lets you switch between "
-                   "that loop and your live webcam during a meeting - without anyone noticing.")
+                   "that loop and your live webcam during a meeting, so you can step away for a moment "
+                   "(a restroom break, a coffee refill) without your camera going dark and distracting everyone.")
         self._para("This guide takes about 2 minutes: add the camera, pick your webcam, "
                    "and record your first loop.")
 
@@ -1413,19 +1496,19 @@ class Wizard:
         if IS_MAC:
             return self._page_camera_mac()
         self._title("1  Add the HappyHacks Virtual Camera")
-        self._para("This adds a camera named \"HappyHacks Virtual Camera\" that Zoom, Teams and browsers can use. "
+        self._para("This adds a camera named \"HappyHacks Virtual Camera\" that meeting apps and browsers can use. "
                    "Windows asks for permission once.")
         self._button("Install camera", "install_driver")
         self._status()
 
     def _page_camera_mac(self):
         self._title("1  Set up the OBS camera")
-        self._para("On a Mac, Doppleganger sends your picture to Zoom through the free OBS Virtual Camera. "
+        self._para("On a Mac, Doppleganger sends your picture to your meeting app through the free OBS Virtual Camera. "
                    "OBS only has to be installed and set up once - it doesn't need to be open during meetings.")
         steps = ("Install OBS Studio 30 or newer.",
                  "Open OBS and click \"Start Virtual Camera\" (bottom right). When macOS asks, allow the "
                  "camera extension in System Settings.",
-                 "Click \"Stop Virtual Camera\" and quit OBS. Then choose \"OBS Virtual Camera\" in Zoom.")
+                 "Click \"Stop Virtual Camera\" and quit OBS. Then choose \"OBS Virtual Camera\" in your meeting app.")
         for i, t in enumerate(steps, 1):
             ttk.Label(self.body, text=f"{i}.  {t}", wraplength=px(430), justify="left", style="Small.TLabel").pack(
                 anchor="w", pady=(0, 4))
@@ -1448,7 +1531,7 @@ class Wizard:
                 ("camera", "Camera", "Shows you in the preview and records your loop.",
                  "Turn on the switch next to Doppleganger.", macos.open_camera_privacy_settings),
                 ("hotkeys", "Input Monitoring",
-                 "Lets fn+F9 (cut) and fn+F10 (glitch) work while Zoom is in front.",
+                 "Lets fn+F9 (cut) and fn+F10 (glitch) work while your meeting app is in front.",
                  "Turn on Doppleganger (not listed? click +, then Applications > Doppleganger). "
                  "When macOS offers \"Quit & Reopen\", click it.",
                  lambda: (macos.request_input_monitoring(), macos.open_input_monitoring_settings()))):
@@ -1539,20 +1622,21 @@ class Wizard:
         hk = self.main.cfg.hotkey.strip("<>").upper()
         gk = self.main.cfg.glitch_hotkey.strip("<>").upper()
         cam = "OBS Virtual Camera" if IS_MAC else "HappyHacks Virtual Camera"
-        self._para(f"In Zoom: Settings → Video → Camera → \"{cam}\".  In Teams: Settings → Devices → Camera.")
+        self._para(f"In your meeting app's video (or camera) settings, choose \"{cam}\". It works with Google Meet, "
+                   "Microsoft Teams, Webex, Zoom and other apps that let you choose a camera.")
         if IS_MAC:
             hk, gk = f"fn+{hk}", f"fn+{gk}"
         self._para(f"Tap {hk} to cut instantly. Hold {hk} and Doppleganger cuts by itself the moment you're in "
-                   f"sync. {gk} fakes a bad connection if you're called on unexpectedly.")
+                   f"sync. {gk} plays a short glitch effect that gives you a few seconds to settle back in.")
         self._para("While the loop is on air your microphone is muted, and Doppleganger never appears in "
-                   "screen shares. The Mini bar keeps the controls beside Zoom.")
+                   "screen shares. The Mini Bar keeps the controls beside your meeting.")
         if IS_MAC and macos.has_input_monitoring() is False:
-            ttk.Button(self.body, text="Allow hotkeys while Zoom is in front (Input Monitoring)",
+            ttk.Button(self.body, text="Allow hotkeys while your meeting app is in front (Input Monitoring)",
                        command=lambda: (macos.request_input_monitoring(),
                                         macos.open_input_monitoring_settings())).pack(anchor="w", pady=(2, 4))
         if winutil.startup_command() is not None:
             self._startup = tk.BooleanVar(value=winutil.starts_with_windows())
-            ttk.Checkbutton(self.body, text=f"Start Doppleganger {WHEN_STARTS} (recommended - Zoom then "
+            ttk.Checkbutton(self.body, text=f"Start Doppleganger {WHEN_STARTS} (recommended - your meeting app then "
                             "always gets a picture)", variable=self._startup,
                             command=lambda: winutil.set_start_with_windows(self._startup.get())).pack(
                 anchor="w", pady=(6, 0))
@@ -1569,14 +1653,14 @@ class Wizard:
         if page == "camera" and IS_MAC:
             st = self.main.obs
             if e.output.connected:
-                txt, col = "✓ Ready - Doppleganger is sending to OBS Virtual Camera. Choose it in Zoom.", AQUA
+                txt, col = "✓ Ready - Doppleganger is sending to OBS Virtual Camera. Choose it in your meeting app.", AQUA
             elif st["ready"]:
                 txt, col = "✓ " + st["message"], AQUA
             else:
                 txt, col = st["message"], AMBER
         elif page == "camera":
             if e.tray_driver_installed():
-                txt, col = "✓ Installed - you can choose \"HappyHacks Virtual Camera\" in Zoom.", AQUA
+                txt, col = "✓ Installed - you can choose \"HappyHacks Virtual Camera\" in your meeting app.", AQUA
             elif not e.tray_driver_available():
                 txt, col = "The camera comes with the installed app. (From source, OBS Virtual Camera is used.)", MUTED
             else:

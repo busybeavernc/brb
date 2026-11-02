@@ -91,7 +91,7 @@ def obs_message(obs_installed: bool, camera: str) -> str:
     if camera == "waiting":
         return ("Almost there: allow the OBS camera in System Settings > General > Login Items & "
                 "Extensions > Camera Extensions (you may need to restart your Mac).")
-    return "OBS Virtual Camera is installed. Choose 'OBS Virtual Camera' in Zoom, Teams or Meet."
+    return "OBS Virtual Camera is installed. Choose 'OBS Virtual Camera' in your meeting app's video settings."
 
 
 def open_obs_download() -> None:
