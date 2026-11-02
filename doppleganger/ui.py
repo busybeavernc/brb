@@ -842,12 +842,13 @@ class EulaDialog:
         self.win.protocol("WM_DELETE_WINDOW", self.decline)
         f = ttk.Frame(self.win, padding=(24, 18))
         f.pack(fill="both", expand=True)
-        ttk.Label(f, text="Before you start", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(f, text="Doppleganger is for short, courteous breaks from video meetings - a restroom break, a coffee "
-                          "refill - without distracting anyone. It's not for faking attendance or getting around "
-                          "attendance checks, identity checks, exams or meetings that require your live presence. "
-                          "Please read and accept the license agreement:",
-                  wraplength=px(560), justify="left").pack(anchor="w", pady=(6, 10))
+        ttk.Label(f, text="Welcome to Doppleganger!", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(f, text="Doppleganger lets you step away from a video meeting for a moment - a restroom break, a "
+                          "coffee refill, a knock at the door - without your camera going dark or distracting anyone. "
+                          "Please be courteous and use it responsibly, following the rules of the meetings you join.",
+                  wraplength=px(560), justify="left").pack(anchor="w", pady=(6, 4))
+        ttk.Label(f, text="Here's the license agreement. Click I Agree to get started.", style="Small.TLabel",
+                  wraplength=px(560), justify="left").pack(anchor="w", pady=(0, 10))
         box = ttk.Frame(f)
         box.pack(fill="both", expand=True)
         txt = tk.Text(box, wrap="word", width=78, height=18, bg=SURFACE, fg=CLOUD, relief="flat", padx=12, pady=10,
