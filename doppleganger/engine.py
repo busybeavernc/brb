@@ -784,6 +784,7 @@ class Engine:
         if live is None:   # no webcam (yet): a calm placeholder until one is plugged in
             live = placeholder(self.cfg.width, self.cfg.height, "No webcam connected - plug one in")
         self._start_camera_watcher()
+        self._ticks, self._ticks_at = 0, time.monotonic()
         try:
             while self.running:
                 fresh = self.camera.latest()
@@ -815,6 +816,11 @@ class Engine:
 
                 if not self._handle_actions():
                     break
+                self._ticks += 1
+                if now - self._ticks_at >= 30:   # how many pictures a second this computer manages (for the log)
+                    log.info("Engine: %.1f frames/s (target %d) in %s mode", self._ticks / (now - self._ticks_at),
+                             self.cfg.fps, self.mode.upper())
+                    self._ticks, self._ticks_at = 0, now
                 next_t += frame_dt
                 delay = next_t - time.monotonic()
                 if delay > 0:

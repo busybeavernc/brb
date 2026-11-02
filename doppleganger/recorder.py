@@ -118,7 +118,7 @@ class Recorder:
     # ---------- timing helpers ----------
     @property
     def elapsed(self) -> float:
-        return len(self.smalls) / self.cfg.fps
+        return len(self.smalls) / self.cfg.fps   # the file's own timeline (kept in step with the clock below)
 
     @property
     def remaining(self) -> float:
@@ -156,8 +156,14 @@ class Recorder:
             self._sil_thread.start()
         else:
             self.motion = 0.7 * self.motion + 0.3 * min(1.0, guides.frame_diff(self.smalls[-1], small) / 6.0)
-        self._writer.write(frame)
-        self.smalls.append(small)
+        # Fill the file's timeline by the clock, not one frame per call: if this computer manages fewer than
+        # cfg.fps updates a second, the latest picture fills the gap, so the loop plays back at real speed (and a
+        # "1:30" recording takes 90 real seconds).
+        due = int((time.monotonic() - self.rec_start) * self.cfg.fps) + 1   # frames the file should hold by now
+        due = min(due, int(self.cfg.loop_seconds * self.cfg.fps))
+        while len(self.smalls) < due:
+            self._writer.write(frame)
+            self.smalls.append(small)
 
         if self.in_return_zone():
             self.match = self.matcher.update(frame, small)
