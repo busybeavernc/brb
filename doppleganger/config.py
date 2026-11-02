@@ -19,7 +19,7 @@ class Config:
     fps: int = 30
 
     # Loop recording
-    loop_seconds: float = 90.0          # target loop length (60-180 recommended)
+    loop_seconds: float = 90.0          # loop length in seconds: 60-600 (Settings > Recording)
     hold_still_seconds: float = 10.0    # "hold still" zone at the start AND end of the loop
     return_prompt_seconds: float = 10.0 # show the first frame this long before the end
     countdown_seconds: int = 3
@@ -34,9 +34,10 @@ class Config:
     glitch_hotkey: str = "<f10>"        # global: fake a bad connection (freeze/jump)
     glitch_max_seconds: float = 30.0    # glitch ends on its own after this long
 
-    # Output camera: "auto" = the Doppleganger camera if installed, else OBS Virtual Camera
+    # Output camera: "auto" = Windows: our HappyHacks Virtual Camera; Mac: OBS Virtual Camera
     output_camera: str = "auto"         # auto | doppleganger | obs
-    driver_prompted: bool = False       # asked once whether to install the Doppleganger camera
+    driver_prompted: bool = False       # (old) asked once whether to install the camera
+    driver_auto_install: str = ""        # driver version the app last installed by itself (installs each new one once)
 
     # Updates (installed Doppleganger.exe only)
     auto_update: bool = True            # check GitHub Releases each time the app opens
@@ -69,6 +70,10 @@ class Config:
             for k, v in data.items():
                 if k in known:
                     setattr(cfg, k, v)
+            try:
+                cfg.loop_seconds = float(max(60, min(600, float(cfg.loop_seconds))))
+            except (TypeError, ValueError):
+                cfg.loop_seconds = 90.0
             if cfg.update_repo == LEGACY_UPDATE_REPO:  # releases moved to the public downloads repo
                 cfg.update_repo = cls.update_repo
         return cfg

@@ -104,6 +104,12 @@ def apply_theme(root: tk.Misc) -> None:
                 lightcolor=SURFACE, darkcolor=SURFACE, focuscolor=SURFACE)
     s.map("TButton", background=[("pressed", BORDER), ("active", SURFACE_HI), ("disabled", MIDNIGHT)],
           foreground=[("disabled", MUTED)])
+    s.configure("Tool.TButton", background=SURFACE, foreground=CLOUD, bordercolor=SURFACE, padding=(10, 4),
+                lightcolor=SURFACE, darkcolor=SURFACE, focuscolor=SURFACE)
+    s.map("Tool.TButton", background=[("pressed", BORDER), ("active", SURFACE_HI)])
+    s.configure("Tool.TMenubutton", background=SURFACE, foreground=CLOUD, bordercolor=SURFACE, padding=(10, 4),
+                lightcolor=SURFACE, darkcolor=SURFACE, arrowcolor=CLOUD, relief="flat")
+    s.map("Tool.TMenubutton", background=[("pressed", BORDER), ("active", SURFACE_HI)])
     s.configure("Accent.TButton", background=VIOLET, foreground=CLOUD, bordercolor=VIOLET,
                 lightcolor=VIOLET, darkcolor=VIOLET, focuscolor=VIOLET)
     s.map("Accent.TButton", background=[("pressed", VIOLET_DARK), ("active", "#8B5CF6")])
@@ -114,6 +120,13 @@ def apply_theme(root: tk.Misc) -> None:
                 bordercolor=BORDER, lightcolor=SURFACE, darkcolor=SURFACE, padding=(8, 5))
     s.map("TCombobox", fieldbackground=[("readonly", SURFACE)], foreground=[("readonly", CLOUD)],
           selectbackground=[("readonly", SURFACE)], selectforeground=[("readonly", CLOUD)])
+    s.configure("Vertical.TScrollbar", background=SURFACE_HI, troughcolor=MIDNIGHT, bordercolor=MIDNIGHT,
+                arrowcolor=CLOUD, lightcolor=SURFACE_HI, darkcolor=SURFACE_HI, gripcount=0)
+    s.map("Vertical.TScrollbar", background=[("active", VIOLET), ("pressed", VIOLET)])
+    for st in ("TEntry", "TSpinbox"):
+        s.configure(st, fieldbackground=SURFACE, background=SURFACE, foreground=CLOUD, insertcolor=CLOUD,
+                    bordercolor=BORDER, lightcolor=SURFACE, darkcolor=SURFACE, arrowcolor=CLOUD, padding=(6, 4))
+        s.map(st, fieldbackground=[("disabled", MIDNIGHT)], foreground=[("disabled", MUTED)])
     root.option_add("*TCombobox*Listbox.background", SURFACE)
     root.option_add("*TCombobox*Listbox.foreground", CLOUD)
     root.option_add("*TCombobox*Listbox.selectBackground", VIOLET)
@@ -207,15 +220,49 @@ class MainWindow:
     def _build(self) -> None:
         r = self.root
         r.columnconfigure(0, weight=1)
-        r.rowconfigure(0, weight=1)
+        r.rowconfigure(1, weight=1)
+
+        # --- toolbar: Settings · Setup Guide · View (Normal / Mini Bar) ---
+        bar = tk.Frame(r, bg=SURFACE, padx=10, pady=4)
+        bar.grid(row=0, column=0, columnspan=2, sticky="ew")
+        for text, cmd in (("Settings", self.open_settings), ("Setup Guide", self.open_wizard)):
+            ttk.Button(bar, text=text, style="Tool.TButton", command=cmd).pack(side="left", padx=(0, 4))
+        view = ttk.Menubutton(bar, text="View", style="Tool.TMenubutton", width=6)
+        self.view_menu = tk.Menu(view, tearoff=0, bg=SURFACE, fg=CLOUD, activebackground=VIOLET,
+                                 activeforeground=CLOUD, font=F(10))
+        self.v_view = tk.StringVar(value="normal")
+        self.view_menu.add_radiobutton(label="Normal", value="normal", variable=self.v_view, command=self.show_main)
+        self.view_menu.add_radiobutton(label="Mini Bar", value="mini", variable=self.v_view, command=self.show_minibar)
+        self.view_menu.add_separator()
+        self.view_menu.add_command(label="Larger text", command=lambda: self.change_text_size(1),
+                                   accelerator=("Cmd" if IS_MAC else "Ctrl") + "++")
+        self.view_menu.add_command(label="Smaller text", command=lambda: self.change_text_size(-1),
+                                   accelerator=("Cmd" if IS_MAC else "Ctrl") + "+-")
+        view["menu"] = self.view_menu
+        view.pack(side="left", padx=(0, 4))
+        tk.Label(bar, text=f"v{updater.current_version()}", bg=SURFACE, fg=MUTED, font=F(9)).pack(side="right")
 
         self.preview = tk.Label(r, bg=MIDNIGHT, bd=0, highlightthickness=0)
-        self.preview.grid(row=0, column=0, sticky="nsew", padx=(14, 0), pady=14)
+        self.preview.grid(row=1, column=0, sticky="nsew", padx=(14, 0), pady=14)
         self.preview.bind("<Configure>", self._on_preview_resize)
 
-        side = ttk.Frame(r, padding=(16, 12, 16, 8), width=340)
-        side.grid(row=0, column=1, sticky="ns")
+        # the side panel scrolls when the window is too short for it (a scroll bar appears only then)
+        holder = tk.Frame(r, bg=MIDNIGHT)
+        holder.grid(row=1, column=1, sticky="ns")
+        holder.rowconfigure(0, weight=1)
+        self._side_canvas = tk.Canvas(holder, bg=MIDNIGHT, highlightthickness=0, bd=0, width=px(352))
+        self._side_canvas.grid(row=0, column=0, sticky="ns")
+        self._side_scroll = ttk.Scrollbar(holder, orient="vertical", command=self._side_canvas.yview)
+        self._side_canvas.configure(yscrollcommand=self._side_scroll.set)
+        side = ttk.Frame(self._side_canvas, padding=(16, 12, 16, 8))
+        self._side_win = self._side_canvas.create_window(0, 0, window=side, anchor="nw")
+        side.bind("<Configure>", lambda _e: self._fit_side())
+        self._side_canvas.bind("<Configure>", lambda _e: self._fit_side())
+        for w in (self._side_canvas, side):
+            w.bind("<Enter>", lambda _e: self._wheel(True))
+            w.bind("<Leave>", lambda _e: self._wheel(False))
         side.columnconfigure(0, weight=1)
+        self._side = side
 
         self._logo = _photo(brand.asset("logo_dark.png"), 250)
         tk.Label(side, image=self._logo, bg=MIDNIGHT, bd=0).grid(sticky="w", pady=(0, 12))
@@ -265,7 +312,7 @@ class MainWindow:
         gk = self.cfg.glitch_hotkey.strip("<>").upper()
         ttk.Button(row, text=f"Glitch ({gk})", command=lambda: self.e.request("glitch")).grid(
             row=0, column=0, sticky="ew", padx=(0, 4))
-        self.rec_btn = ttk.Button(row, text="Record loop", command=lambda: self.e.request("record"))
+        self.rec_btn = ttk.Button(row, text="Record loop (R)", command=lambda: self.e.request("record"))
         self.rec_btn.grid(row=0, column=1, sticky="ew", padx=4)
         if self.e.seg is None:  # AI segmentation unavailable: calibration is needed, keep it handy
             ttk.Button(row, text="Calibrate", command=lambda: self.e.request("calibrate")).grid(
@@ -301,19 +348,38 @@ class MainWindow:
         ttk.Button(lb, text="Rename", command=self._rename_selected).grid(row=0, column=1, sticky="ew", padx=4)
         ttk.Button(lb, text="Delete", command=self._delete_selected).grid(row=0, column=2, sticky="ew", padx=(4, 0))
 
-        # --- bottom ---
-        bot = ttk.Frame(side)
-        bot.grid(sticky="ew", pady=(14, 0))
-        for i in range(3):
-            bot.columnconfigure(i, weight=1)
-        ttk.Button(bot, text="Mini bar", command=self.show_minibar).grid(row=0, column=0, sticky="ew", padx=(0, 4))
-        ttk.Button(bot, text="Settings", command=self.open_settings).grid(row=0, column=1, sticky="ew", padx=4)
-        ttk.Button(bot, text="Setup guide", command=self.open_wizard).grid(row=0, column=2, sticky="ew", padx=(4, 0))
-        ttk.Label(side, text=f"{brand.TAGLINE}   v{updater.current_version()}", style="Small.TLabel").grid(
-            sticky="e", pady=(8, 0))
+        ttk.Label(side, text=brand.TAGLINE, style="Small.TLabel").grid(sticky="e", pady=(12, 0))
 
         self.status = tk.Label(r, text="", anchor="w", padx=14, pady=5, bg=SURFACE, fg=CLOUD, font=F(9))
-        self.status.grid(row=1, column=0, columnspan=2, sticky="ew")
+        self.status.grid(row=2, column=0, columnspan=2, sticky="ew")
+
+    # ---------- side panel scrolling ----------
+    def _fit_side(self) -> None:
+        c, side = self._side_canvas, self._side
+        need_w = side.winfo_reqwidth()
+        if int(c.cget("width")) != need_w:
+            c.configure(width=need_w)
+        c.configure(scrollregion=(0, 0, need_w, side.winfo_reqheight()))
+        fits = side.winfo_reqheight() <= c.winfo_height() + 1
+        if fits and self._side_scroll.winfo_ismapped():
+            self._side_scroll.grid_remove()
+            c.yview_moveto(0)
+        elif not fits and not self._side_scroll.winfo_ismapped():
+            self._side_scroll.grid(row=0, column=1, sticky="ns")
+
+    def _wheel(self, on: bool) -> None:
+        if on:
+            self.root.bind_all("<MouseWheel>", self._on_wheel)
+            self.root.bind_all("<Button-4>", lambda _e: self._side_canvas.yview_scroll(-2, "units"))
+            self.root.bind_all("<Button-5>", lambda _e: self._side_canvas.yview_scroll(2, "units"))
+        else:
+            for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                self.root.unbind_all(seq)
+
+    def _on_wheel(self, ev) -> None:
+        if self._side_scroll.winfo_ismapped():
+            step = -int(ev.delta / 120) if abs(ev.delta) >= 120 else (-1 if ev.delta > 0 else 1)
+            self._side_canvas.yview_scroll(step * 2, "units")
 
     @staticmethod
     def _no_button_focus(widget) -> None:
@@ -468,7 +534,14 @@ class MainWindow:
     def _refresh_status(self) -> None:
         e = self.e
         mode = e.mode
-        self.state_lbl.configure(text=mode.upper(), bg=MODE_BG[mode], fg=MODE_FG[mode])
+        if e.recorder.state == State.RECORDING:   # recording: a red REC badge with the time, hard to miss
+            el, tot = int(e.recorder.elapsed), int(e.cfg.loop_seconds)
+            self.state_lbl.configure(text=f"● REC {el // 60}:{el % 60:02d} / {tot // 60}:{tot % 60:02d}",
+                                     bg=DANGER, fg=MIDNIGHT, width=0)
+        elif e.recorder.state == State.COUNTDOWN:
+            self.state_lbl.configure(text="● REC starting...", bg=DANGER, fg=MIDNIGHT, width=0)
+        else:
+            self.state_lbl.configure(text=mode.upper(), bg=MODE_BG[mode], fg=MODE_FG[mode], width=7)
         if e.glitch.active and not self.glitch_lbl.winfo_ismapped():
             self.glitch_lbl.pack(side="left", padx=8)
         elif not e.glitch.active and self.glitch_lbl.winfo_ismapped():
@@ -481,7 +554,7 @@ class MainWindow:
         self.cut_btn.refresh()
         o = e.output
         if o.connected:
-            name = "Doppleganger camera" if o.backend == "doppleganger" else "OBS Virtual Camera"
+            name = "HappyHacks Virtual Camera" if o.backend == "doppleganger" else "OBS Virtual Camera"
             self.out_lbl.configure(text=f"● Sending to {name}" + ("  ·  in use" if o.viewer_connected else ""),
                                    foreground=AQUA)
         else:
@@ -495,8 +568,8 @@ class MainWindow:
             elif self.obs_btn.winfo_ismapped():
                 self.obs_btn.pack_forget()
         rec = e.recorder.state
-        self.rec_btn.configure(text="Cancel recording" if e.recording_active else
-                               ("Stitching..." if rec == State.PROCESSING else "Record loop"))
+        self.rec_btn.configure(text="Cancel recording (R)" if e.recording_active else
+                               ("Stitching..." if rec == State.PROCESSING else "Record loop (R)"))
         if self.v_outlines.get() != self.cfg.show_outlines:
             self.v_outlines.set(self.cfg.show_outlines)
         self._refresh_license()
@@ -595,10 +668,12 @@ class MainWindow:
             self.minibar = MiniBar(self)
         self.minibar.show()
         self.root.withdraw()
+        self.v_view.set("mini")
         self.cfg.mini_bar = True
         self.cfg.save(self.e.config_path)
 
     def show_main(self) -> None:
+        self.v_view.set("normal")
         if self.minibar is not None:
             self.minibar.hide()
         self.root.deiconify()
@@ -677,6 +752,57 @@ RECORD_TIPS = (
 )
 
 
+def center_on(win: tk.Misc, parent: tk.Misc | None, top_third: bool = False) -> None:
+    """Put a dialog in the middle of the app window (or the screen), fully on screen."""
+    win.update_idletasks()
+    w, h = win.winfo_reqwidth(), win.winfo_reqheight()
+    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+    try:
+        visible = parent is not None and parent.winfo_viewable()
+    except tk.TclError:
+        visible = False
+    if visible:
+        px_, py_ = parent.winfo_rootx(), parent.winfo_rooty()
+        pw, ph = max(parent.winfo_width(), 1), max(parent.winfo_height(), 1)
+    else:
+        px_, py_, pw, ph = 0, 0, sw, sh
+    x = px_ + (pw - w) // 2
+    y = py_ + ((ph - h) // 4 if top_third else (ph - h) // 2)
+    x = min(max(0, x), max(0, sw - w))
+    y = min(max(0, y), max(0, sh - h - 48))   # keep clear of the taskbar
+    win.geometry(f"+{x}+{y}")
+
+
+class ScrollArea(tk.Frame):
+    """A frame whose content scrolls when it's taller than max_height (a scroll bar appears only then)."""
+
+    def __init__(self, parent, max_height: int):
+        super().__init__(parent, bg=MIDNIGHT)
+        self.max_height = max_height
+        self.canvas = tk.Canvas(self, bg=MIDNIGHT, highlightthickness=0, bd=0)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.bar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=self.bar.set)
+        self.inner = ttk.Frame(self.canvas)
+        self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
+        self.inner.bind("<Configure>", lambda _e: self._fit())
+        for w in (self.canvas, self.inner):
+            w.bind("<Enter>", lambda _e: self.bind_all("<MouseWheel>", self._wheel))
+            w.bind("<Leave>", lambda _e: self.unbind_all("<MouseWheel>"))
+
+    def _fit(self):
+        w, h = self.inner.winfo_reqwidth(), self.inner.winfo_reqheight()
+        self.canvas.configure(width=w, height=min(h, self.max_height), scrollregion=(0, 0, w, h))
+        if h > self.max_height and not self.bar.winfo_ismapped():
+            self.bar.pack(side="right", fill="y")
+        elif h <= self.max_height and self.bar.winfo_ismapped():
+            self.bar.pack_forget()
+
+    def _wheel(self, ev):
+        if self.bar.winfo_ismapped():
+            self.canvas.yview_scroll(-int(ev.delta / 120) * 2 if abs(ev.delta) >= 120 else (-2 if ev.delta > 0 else 2), "units")
+
+
 class RecordTipsDialog:
     """Shown when Record is pressed: what to expect, so the first loop is a good one."""
 
@@ -720,14 +846,7 @@ class RecordTipsDialog:
         for key in ("<Return>", "<KeyPress-r>", "<KeyPress-R>"):
             self.win.bind(key, lambda _e: self.start())
         self.win.bind("<Escape>", lambda _e: self.dismiss())
-        self.win.update_idletasks()
-        ox, oy = parent.winfo_rootx(), parent.winfo_rooty()
-        pw, ph = max(parent.winfo_width(), 1), max(parent.winfo_height(), 1)
-        w, h = self.win.winfo_reqwidth(), self.win.winfo_reqheight()
-        sw, sh = self.win.winfo_screenwidth(), self.win.winfo_screenheight()
-        x = min(max(0, ox + (pw - w) // 2), max(0, sw - w))
-        y = min(max(0, oy + (ph - h) // 4), max(0, sh - h - 40))
-        self.win.geometry(f"+{x}+{y}")
+        center_on(self.win, main.root, top_third=True)   # the app window, or the screen if only the mini bar is up
         try:
             self.win.grab_set()
         except tk.TclError:
@@ -775,18 +894,20 @@ class LicenseDialog:
         self.win.protocol("WM_DELETE_WINDOW", self.close)
         f = ttk.Frame(self.win, padding=(26, 20))
         f.pack()
-        ttk.Label(f, text="License key", style="Title.TLabel").pack(anchor="w")
-        free = format_left(self.lic.free_total) if self.lic.free_total < 3600 else \
-            f"{int(self.lic.free_total // 3600)} hour{'s' if self.lic.free_total >= 7200 else ''}"
-        ttk.Label(f, text=f"Every computer gets {free} of free LOOP time (it only counts while the LOOP is on air). "
-                          f"A license key gives you unlimited LOOP time: {self.lic.price}/month, cancel any time.",
-                  wraplength=px(440), justify="left").pack(anchor="w", pady=(6, 4))
-        self.offer_lbl = ttk.Label(f, text="", wraplength=px(440), justify="left", foreground=AQUA)
+        ttk.Label(f, text="Doppleganger license", style="Title.TLabel").pack(anchor="w")
+        # Prices and offers come from doppleganger.happyhacks.io each time this opens (never stale in the app)
+        self.pitch_lbl = ttk.Label(f, text="Checking the latest prices and offers...", wraplength=px(440),
+                                   justify="left")
+        self.pitch_lbl.pack(anchor="w", pady=(6, 4))
+        self.offer_lbl = ttk.Label(f, text="", wraplength=px(440), justify="left", foreground=AQUA,
+                                   font=F(10, "bold"))
         self.offer_lbl.pack(anchor="w")
         self.now_lbl = ttk.Label(f, text="", style="Small.TLabel")
         self.now_lbl.pack(anchor="w", pady=(4, 12))
-        ttk.Button(f, text="Get a license key on doppleganger.happyhacks.io", style="Accent.TButton",
-                   command=self._open_site).pack(anchor="w")
+        self.get_btn = ttk.Button(f, text="Get Unlimited Access Now", style="Accent.TButton", command=self._open_site)
+        self.get_btn.pack(anchor="w")
+        self._seq = self.lic.status_seq
+        self.lic.refresh()
         ttk.Label(f, text="Already have a key? Paste it here:", style="Head.TLabel").pack(anchor="w", pady=(18, 4))
         row = ttk.Frame(f)
         row.pack(fill="x")
@@ -803,6 +924,7 @@ class LicenseDialog:
         ttk.Button(bottom, text="Close", command=self.close).pack(side="right")
         self._applied = False
         self._tick()
+        center_on(self.win, main.root, top_third=True)
         main.root.after(150, main.apply_capture_setting)
         ent.focus_set()
 
@@ -830,8 +952,13 @@ class LicenseDialog:
             return
         lic = self.lic
         self.now_lbl.configure(text="Now: " + lic.summary())
-        self.offer_lbl.configure(text=f"50% off: subscribe now, while you still have free time, for {lic.early_price}/month "
-                                      "for as long as you stay subscribed." if lic.offer and not lic.unlimited else "")
+        fresh = lic.status_seq != self._seq
+        if fresh:
+            self.pitch_lbl.configure(text=lic.pitch or "Unlimited Access: unlimited LOOP time, cancel any time.")
+            self.offer_lbl.configure(text=lic.offer_text if lic.offer and not lic.unlimited else "")
+        elif not lic.online and lic.message and self.pitch_lbl.cget("text").startswith("Checking"):
+            self.pitch_lbl.configure(text="Couldn't reach doppleganger.happyhacks.io for the latest prices. "
+                                          "Check your internet connection.")
         if self._applied:
             if lic.unlimited:
                 self.result.configure(text="✓ License applied. Unlimited LOOP time on this computer.", foreground=AQUA)
@@ -868,11 +995,7 @@ class BusyDialog:
             anchor="w", pady=(4, 12))
         self.bar = ttk.Progressbar(f, maximum=100, length=320, style="InSync.Horizontal.TProgressbar")
         self.bar.pack()
-        self.win.update_idletasks()
-        ox, oy = parent.winfo_rootx(), parent.winfo_rooty()
-        pw, ph = max(parent.winfo_width(), 1), max(parent.winfo_height(), 1)
-        w, h = self.win.winfo_reqwidth(), self.win.winfo_reqheight()
-        self.win.geometry(f"+{ox + (pw - w) // 2}+{oy + max(0, (ph - h) // 3)}")
+        center_on(self.win, parent, top_third=True)
         try:
             self.win.grab_set()  # modal: clicks on the main window wait until the loop is ready
         except tk.TclError:
@@ -905,7 +1028,9 @@ class SettingsWindow:
         self.win.transient(main.root)
         self.win.configure(bg=MIDNIGHT)
         self.win.protocol("WM_DELETE_WINDOW", self.close)
-        f = ttk.Frame(self.win, padding=20)
+        area = ScrollArea(self.win, max_height=self.win.winfo_screenheight() - 140)
+        area.pack(fill="both", expand=True)
+        f = ttk.Frame(area.inner, padding=20)
         f.pack(fill="both")
         ttk.Label(f, text="Settings", style="Title.TLabel").grid(sticky="w", pady=(0, 10))
 
@@ -955,6 +1080,19 @@ class SettingsWindow:
         ttk.Scale(op, from_=0.15, to=0.6, variable=self.v_opacity, length=180,
                   command=lambda _v: self._changed()).pack(side="left", padx=10)
 
+        ttk.Label(f, text="Recording", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
+        rl = ttk.Frame(f)
+        rl.grid(sticky="ew")
+        ttk.Label(rl, text="Loop length").pack(side="left")
+        self.v_len = tk.StringVar(value=str(int(self.cfg.loop_seconds)))
+        self.len_box = ttk.Spinbox(rl, from_=60, to=600, increment=10, width=6, textvariable=self.v_len,
+                                   command=self._len_changed, font=F(10))
+        self.len_box.pack(side="left", padx=8)
+        self.len_box.bind("<FocusOut>", lambda _e: self._len_changed())
+        self.len_box.bind("<Return>", lambda _e: self._len_changed())
+        self.len_note = ttk.Label(rl, text="seconds (60-600, default 90)", style="Small.TLabel")
+        self.len_note.pack(side="left")
+
         ttk.Label(f, text="Hotkeys (work while Zoom is focused)", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
         hk, gk = self.cfg.hotkey.strip("<>").upper(), self.cfg.glitch_hotkey.strip("<>").upper()
         if IS_MAC:
@@ -977,7 +1115,7 @@ class SettingsWindow:
         ttk.Label(cal, text=how, style="Small.TLabel", wraplength=px(330), justify="left").pack(side="left")
         ttk.Button(cal, text="Calibrate room", command=lambda: self.e.request("calibrate")).pack(side="right")
 
-        ttk.Label(f, text="OBS Virtual Camera" if IS_MAC else "Doppleganger camera",
+        ttk.Label(f, text="OBS Virtual Camera" if IS_MAC else "HappyHacks Virtual Camera",
                   style="Head.TLabel").grid(sticky="w", pady=(12, 2))
         self.v_startup = tk.BooleanVar(value=winutil.starts_with_windows())
         self.startup_chk = ttk.Checkbutton(
@@ -1005,6 +1143,7 @@ class SettingsWindow:
         ttk.Button(f, text="Done", style="Accent.TButton", command=self.close).grid(sticky="e", pady=(16, 0))
         self.refresh()
         MainWindow._no_button_focus(self.win)
+        center_on(self.win, main.root)
         self.win.after(150, main.apply_capture_setting)
 
     def _changed(self) -> None:
@@ -1024,6 +1163,19 @@ class SettingsWindow:
         if hide_changed:
             self.main.apply_capture_setting()
 
+    def _len_changed(self) -> None:
+        try:
+            v = int(float(self.v_len.get()))
+        except ValueError:
+            v = int(self.cfg.loop_seconds)
+        v = max(60, min(600, v))
+        self.v_len.set(str(v))
+        if self.e.recording_active:   # takes effect on the next recording
+            return
+        if v != int(self.cfg.loop_seconds):
+            self.cfg.loop_seconds = float(v)
+            self.cfg.save(self.e.config_path)
+
     def _startup_changed(self) -> None:
         try:
             winutil.set_start_with_windows(self.v_startup.get())
@@ -1038,6 +1190,9 @@ class SettingsWindow:
         if not self.alive:
             return
         self.text_pct.configure(text=f"{int(round(self.cfg.text_scale * 100))}%")
+        busy = self.e.recording_active
+        self.len_box.state(["disabled"] if busy else ["!disabled"])
+        self.len_note.configure(text="seconds - can't change while recording" if busy else "seconds (60-600, default 90)")
         lic = self.e.lic
         self.lic_lbl.configure(text=lic.summary() + (f"  ·  key {lic.key[-4:]}" if lic.key and lic.unlimited else ""))
         self.v_guides.set(self.cfg.show_guides)
@@ -1050,7 +1205,7 @@ class SettingsWindow:
                                    state="disabled" if st["ready"] else "normal")
             return
         installed = self.e.tray_driver_installed()
-        self.drv_lbl.configure(text="Installed ✓ - choose \"Doppleganger\" in Zoom" if installed
+        self.drv_lbl.configure(text="Installed ✓ - choose \"HappyHacks Virtual Camera\" in Zoom" if installed
                                else "Not installed")
         self.drv_btn.configure(text="Remove" if installed else "Install",
                                state="normal" if (installed or self.e.tray_driver_available()) else "disabled")
@@ -1189,7 +1344,7 @@ class Wizard:
         self.status = None
         self.render()
         main.root.update_idletasks()
-        self.win.geometry(f"+{main.root.winfo_rootx() + 40}+{main.root.winfo_rooty() + 60}")
+        center_on(self.win, main.root)
         self.win.after(150, main.apply_capture_setting)
 
     # --- navigation ---
@@ -1257,8 +1412,8 @@ class Wizard:
     def _page_camera(self):
         if IS_MAC:
             return self._page_camera_mac()
-        self._title("1  Add the Doppleganger camera")
-        self._para("This adds a camera named \"Doppleganger\" that Zoom, Teams and browsers can use. "
+        self._title("1  Add the HappyHacks Virtual Camera")
+        self._para("This adds a camera named \"HappyHacks Virtual Camera\" that Zoom, Teams and browsers can use. "
                    "Windows asks for permission once.")
         self._button("Install camera", "install_driver")
         self._status()
@@ -1383,7 +1538,7 @@ class Wizard:
         self._title(f"{self.STEPS.index('zoom')}  Use it in your meeting")
         hk = self.main.cfg.hotkey.strip("<>").upper()
         gk = self.main.cfg.glitch_hotkey.strip("<>").upper()
-        cam = "OBS Virtual Camera" if IS_MAC else "Doppleganger"
+        cam = "OBS Virtual Camera" if IS_MAC else "HappyHacks Virtual Camera"
         self._para(f"In Zoom: Settings → Video → Camera → \"{cam}\".  In Teams: Settings → Devices → Camera.")
         if IS_MAC:
             hk, gk = f"fn+{hk}", f"fn+{gk}"
@@ -1421,7 +1576,7 @@ class Wizard:
                 txt, col = st["message"], AMBER
         elif page == "camera":
             if e.tray_driver_installed():
-                txt, col = "✓ Installed - you can choose \"Doppleganger\" in Zoom.", AQUA
+                txt, col = "✓ Installed - you can choose \"HappyHacks Virtual Camera\" in Zoom.", AQUA
             elif not e.tray_driver_available():
                 txt, col = "The camera comes with the installed app. (From source, OBS Virtual Camera is used.)", MUTED
             else:

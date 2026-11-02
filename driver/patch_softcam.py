@@ -3,7 +3,7 @@
 Run on CI before building:  python driver/patch_softcam.py <softcam-checkout> [toolset, e.g. v145]
 
 Changes (each is checked, so an upstream change fails the build loudly instead of silently):
-- Camera name shown in Zoom/Teams/browsers: "Doppleganger"
+- Camera name shown in Zoom/Teams/browsers: "HappyHacks Virtual Camera"
 - Its own COM class ID, mutex and shared-memory names, so it never collides with
   another softcam-based camera installed on the same PC
 - Opens even before the Doppleganger app is running (1280x720 @ 30), so Zoom can
@@ -22,12 +22,12 @@ DEFAULT_W, DEFAULT_H, DEFAULT_FPS = 1280, 720, 30
 PATCHES = {
     "src/softcam/softcam.cpp": [
         ("0xaef3b972, 0x5fa5, 0x4647, 0x95, 0x71, 0x35, 0x8e, 0xb4, 0x72, 0xbc, 0x9e);", GUID_LINE),
-        ('const wchar_t FILTER_NAME[] = L"DirectShow Softcam";', 'const wchar_t FILTER_NAME[] = L"Doppleganger";'),
+        ('const wchar_t FILTER_NAME[] = L"DirectShow Softcam";', 'const wchar_t FILTER_NAME[] = L"HappyHacks Virtual Camera";'),
     ],
     "src/softcamcore/DShowSoftcam.cpp": [
-        ('CSource(NAME("DirectShow Softcam"), lpunk, clsid),', 'CSource(NAME("Doppleganger"), lpunk, clsid),'),
-        ('L"DirectShow Softcam Stream"', 'L"Doppleganger Stream"'),
-        ('NAME("DirectShow Softcam Stream")', 'NAME("Doppleganger Stream")'),
+        ('CSource(NAME("DirectShow Softcam"), lpunk, clsid),', 'CSource(NAME("HappyHacks Virtual Camera"), lpunk, clsid),'),
+        ('L"DirectShow Softcam Stream"', 'L"HappyHacks Virtual Camera Stream"'),
+        ('NAME("DirectShow Softcam Stream")', 'NAME("HappyHacks Virtual Camera Stream")'),
         ("    m_valid(m_frame_buffer ? true : false),\n"
          "    m_width(m_frame_buffer.width()),\n"
          "    m_height(m_frame_buffer.height()),\n"

@@ -19,7 +19,8 @@ def main() -> None:
     ap.add_argument("--camera", type=int, help="webcam index (0, 1, ...)")
     ap.add_argument("--seconds", type=float, help="loop length in seconds")
     ap.add_argument("--no-vcam", action="store_true", help="preview only, no virtual camera")
-    ap.add_argument("--remove-camera", action="store_true", help="remove the Doppleganger camera and exit")
+    ap.add_argument("--remove-camera", action="store_true", help="remove the HappyHacks Virtual Camera and exit")
+    ap.add_argument("--install-camera", action="store_true", help="install the HappyHacks Virtual Camera and exit")
     ap.add_argument("--minimized", action="store_true", help="start minimized (used when starting with Windows)")
     ap.add_argument("--selftest", action="store_true", help="check the packaged app's parts load, then exit")
     args, _unknown = ap.parse_known_args()  # macOS may add its own arguments (e.g. -psn_...)
@@ -33,6 +34,16 @@ def main() -> None:
 
     if args.minimized:
         splash.close()  # started at sign-in: stay out of the way
+    if args.install_camera:  # used by the installer: the camera is ready before the app first opens
+        splash.close()
+        if vcamlib.bundled() and vcamlib.needs_install():
+            ok, detail = vcamlib.install()
+            log.info("Camera install (installer): %s (%s)", ok, detail)
+            if ok:
+                cfg0 = Config.load(args.config)
+                cfg0.driver_auto_install = vcamlib.DRIVER_VERSION
+                cfg0.save(args.config)
+        return
     if args.remove_camera:  # used by the uninstaller
         if vcamlib.installed_version() is not None:
             ok, detail = vcamlib.uninstall()
@@ -63,8 +74,13 @@ def main() -> None:
 
     splash.status("Opening your webcam and loading AI person detection...", 0.45)
     engine = Engine(cfg, vcam=not args.no_vcam, config_path=args.config, progress=splash.status)
-    if not args.no_vcam and vcamlib.needs_install() and vcamlib.installed_version() is not None:
-        engine.install_driver(ask=False)  # this version ships a newer camera driver
+    # Windows: our camera is the default. Install it (or the newer one this version ships) by itself, once per
+    # driver version - Windows shows its permission prompt. Declined? Settings / the setup guide can install it later.
+    if (not args.no_vcam and vcamlib.bundled() and vcamlib.needs_install()
+            and cfg.driver_auto_install != vcamlib.DRIVER_VERSION):
+        cfg.driver_auto_install = vcamlib.DRIVER_VERSION
+        cfg.save(args.config)
+        engine.install_driver(ask=False)
 
     splash.status("Opening the window...", 0.95)
     from .ui import MainWindow  # imported late: Tk isn't needed for --remove-camera

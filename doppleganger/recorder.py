@@ -262,20 +262,52 @@ class Recorder:
                           brand.CV_VIOLET)
         elif self.in_end_hold():
             guides.banner(preview, "HOLD STILL", brand.CV_VIOLET)
-        else:
+        hint = ""
+        if not returning and not self.in_start_hold() and not self.in_end_hold():
             until = self.remaining - cfg.return_prompt_seconds
-            guides.put_text(preview, f"Recording - move naturally  (return cue in {until:0.0f}s)",
-                            (20, 40), 0.7)
+            hint = f"move naturally - return cue in {until:0.0f}s"
 
         if self.in_start_hold() or self.in_end_hold():
             guides.draw_meter(preview, "Movement", self.motion, h - 55, good_high=False)
             if self.motion > 0.6:
                 guides.put_text(preview, "Too much movement!", (20, h - 110), 0.8, brand.CV_DANGER)
 
-        # recording dot + time
-        cv2.circle(preview, (w - 30, h - 30), 10, brand.CV_DANGER, -1, cv2.LINE_AA)
-        guides.put_text(preview, f"{self.elapsed:0.0f}/{cfg.loop_seconds:0.0f}s", (w - 160, h - 22), 0.6)
-        guides.put_text(preview, "R / Esc = cancel", (w - 160, h - 50), 0.45)
+        self._draw_progress(preview, hint)
+        bar = max(14, h // 34)
+        guides.put_text(preview, "R / Esc = cancel", (w - 160, h - bar - 12), 0.45)
         if self.in_return_zone():
-            guides.put_text(preview, "E = end now", (w - 160, h - 74), 0.45)
+            guides.put_text(preview, "E = end now", (w - 160, h - bar - 36), 0.45)
         return preview
+
+    def _draw_progress(self, img: np.ndarray, hint: str = "") -> None:
+        """Big REC sign with the time, and a progress bar along the bottom of the preview."""
+        h, w = img.shape[:2]
+        total = max(1.0, float(self.cfg.loop_seconds))
+        done = min(total, max(0.0, self.elapsed))
+        frac = done / total
+        # progress bar: violet for the hold-still zones, red while you move freely
+        bar_h = max(14, h // 34)
+        guides.rounded_rect(img, (0, h - bar_h), (w, h), (40, 30, 30), 0, opacity=0.75)
+        hold = self.cfg.hold_still_seconds / total
+        guides.rounded_rect(img, (0, h - bar_h), (int(w * frac), h), brand.CV_DANGER, 0)
+        for mark in (hold, 1 - hold):   # where the hold-still parts begin / end
+            x = int(w * mark)
+            cv2.line(img, (x, h - bar_h - 4), (x, h), (255, 255, 255), 2, cv2.LINE_AA)
+        # REC 0:42 / 1:30  ·  0:48 left   (top-left, large)
+        pulse = 0.55 + 0.45 * abs(np.sin(time.monotonic() * 3.0))
+        text = f"REC  {_mmss(done)} / {_mmss(total)}"
+        scale = max(0.8, w / 1100)
+        tw, th = guides.text_size(text, scale, bold=True)
+        x0, y0 = 16, max(int(h * 0.06), 58) + 64
+        guides.rounded_rect(img, (x0, y0), (x0 + tw + 62, y0 + th + 20), (20, 20, 30), (th + 20) // 2, opacity=0.8)
+        r = max(7, th // 3)
+        dot = tuple(int(c * pulse) for c in brand.CV_DANGER)
+        cv2.circle(img, (x0 + 22, y0 + (th + 20) // 2), r, dot, -1, cv2.LINE_AA)
+        guides.put_text(img, text, (x0 + 40, y0 + 10 + th - 4), scale, bold=True, shadow=False)
+        guides.put_text(img, f"{_mmss(total - done)} left" + (f"  ·  {hint}" if hint else ""),
+                        (x0 + 6, y0 + th + 46), scale * 0.6)
+
+
+def _mmss(seconds: float) -> str:
+    s = max(0, int(round(seconds)))
+    return f"{s // 60}:{s % 60:02d}"

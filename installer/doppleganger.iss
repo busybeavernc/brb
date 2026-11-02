@@ -63,10 +63,13 @@ Filename: "{sys}\certutil.exe"; Parameters: "-user -addstore Root ""{app}\dopple
   StatusMsg: "Trusting the Doppleganger publisher..."; Flags: runhidden waituntilterminated; Tasks: trustpublisher
 Filename: "{sys}\certutil.exe"; Parameters: "-user -addstore TrustedPublisher ""{app}\doppleganger-publisher.cer"""; \
   Flags: runhidden waituntilterminated; Tasks: trustpublisher
+; The HappyHacks Virtual Camera (what Zoom/Teams use). Windows asks for permission once.
+Filename: "{app}\{#MyAppExe}"; Parameters: "--install-camera"; StatusMsg: "Installing the HappyHacks Virtual Camera (approve the Windows prompt)..."; \
+  Flags: waituntilterminated skipifsilent
 Filename: "{app}\{#MyAppExe}"; Description: "Open Doppleganger"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-; Remove the Doppleganger camera (Windows asks for permission if it's installed).
+; Remove the HappyHacks Virtual Camera (Windows asks for permission if it's installed).
 Filename: "{app}\{#MyAppExe}"; Parameters: "--remove-camera"; Flags: waituntilterminated; RunOnceId: "RemoveCamera"
 ; Stop trusting the publisher certificate (no-op if it was never trusted).
 Filename: "{sys}\certutil.exe"; Parameters: "-user -delstore TrustedPublisher ""{#CertSubject}"""; Flags: runhidden waituntilterminated; RunOnceId: "UntrustPublisher"

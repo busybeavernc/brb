@@ -21,7 +21,7 @@ def _error_box(msg: str) -> None:
 
 if __name__ == "__main__":
     # Splash first: importing OpenCV/MediaPipe and opening the webcam takes a few seconds.
-    quiet = any(a in sys.argv for a in ("--selftest", "--remove-camera", "--minimized"))
+    quiet = any(a in sys.argv for a in ("--selftest", "--remove-camera", "--install-camera", "--minimized"))
     from doppleganger import splash
     if not quiet:
         splash.show()

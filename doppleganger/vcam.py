@@ -17,11 +17,12 @@ import time
 
 import numpy as np
 
-CAMERA_NAME = "Doppleganger"
+CAMERA_NAME = "HappyHacks Virtual Camera"   # what Zoom/Teams list (renamed from "Doppleganger" in driver 3)
 CLSID = "{548A881E-7657-4231-8FEA-A9877D9743C9}"
-DRIVER_VERSION = "2"  # 2: neutral placeholder when the app is not running (fixes a Zoom crash)  # bump when the driver DLL changes, so installed copies get refreshed
+DRIVER_VERSION = "3"  # bump when the driver DLL changes, so installed copies get refreshed
+# 2: neutral placeholder when the app is not running (fixes a Zoom crash); 3: renamed "HappyHacks Virtual Camera"
 DLL64, DLL32 = "doppleganger_cam64.dll", "doppleganger_cam32.dll"
-VIRTUAL_CAMERA_HINTS = ("doppleganger", "obs virtual", "virtual cam", "unity video capture",
+VIRTUAL_CAMERA_HINTS = ("doppleganger", "happyhacks", "obs virtual", "virtual cam", "unity video capture",
                         "softcam", "xsplit", "snap camera", "manycam")
 
 
@@ -136,7 +137,7 @@ def uninstall() -> tuple[bool, str]:
 # ---------- sending frames ----------
 
 class DopplegangerCamera:
-    """Sender side of the Doppleganger camera (same API shape as pyvirtualcam.Camera)."""
+    """Sender side of the HappyHacks Virtual Camera (same API shape as pyvirtualcam.Camera)."""
 
     device = CAMERA_NAME
 
@@ -153,7 +154,7 @@ class DopplegangerCamera:
         # framerate 0 = deliver each frame immediately; the app paces itself.
         self._cam = self._dll.scCreateCamera(width, height, 0.0)
         if not self._cam:
-            raise RuntimeError("the Doppleganger camera is already in use by another copy of the app")
+            raise RuntimeError("the HappyHacks Virtual Camera is already in use by another copy of Doppleganger")
         self.width, self.height = width, height
 
     def send(self, frame: np.ndarray) -> None:

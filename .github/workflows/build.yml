@@ -19,6 +19,11 @@ on:
       - "index.html"
       - "docs/**"
   workflow_dispatch:
+    inputs:
+      mac:
+        description: "Also build the Mac apps (otherwise Windows only; the website keeps offering the last Mac version)"
+        type: boolean
+        default: false
 
 concurrency:                 # a newer push replaces a test run that hasn't finished; releases are never cancelled
   group: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')) && 'release' || 'test' }}-${{ github.ref }}
@@ -183,7 +188,8 @@ jobs:
             dist/DopplegangerSetup.exe
 
   mac:
-    if: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')) }}
+    # Mac builds only when asked: "Run workflow" with "Also build the Mac apps" ticked, or [mac] in the commit message
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.mac) || (contains(github.event.head_commit.message, '[release]') && contains(github.event.head_commit.message, '[mac]')) }}
     strategy:
       fail-fast: false
       matrix:
@@ -268,7 +274,7 @@ jobs:
           v="$base.$(( ${{ github.run_number }} + BUILD_OFFSET ))"
           notes="**Download:** https://doppleganger.happyhacks.io/ (picks the right file for your computer).
 
-          **Windows:** DopplegangerSetup.exe. **Mac:** Doppleganger-mac-arm64.dmg (Apple Silicon) or Doppleganger-mac-x86_64.dmg (Intel), added a few minutes after this release appears; needs [OBS Studio](https://obsproject.com/download) 30+.
+          **Windows:** DopplegangerSetup.exe. **Mac:** Doppleganger-mac-arm64.dmg (Apple Silicon) or Doppleganger-mac-x86_64.dmg (Intel) when this release includes them (otherwise the download page offers the latest Mac version); needs [OBS Studio](https://obsproject.com/download) 30+.
 
           $(git log -1 --pretty=%s)"
           files="artifacts/DopplegangerSetup.exe artifacts/Doppleganger.exe installer/doppleganger-publisher.cer"
@@ -283,7 +289,7 @@ jobs:
 
   mac-release:
     needs: [release, mac]
-    if: always() && needs.release.result == 'success'
+    if: always() && needs.release.result == 'success' && needs.mac.result != 'skipped'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

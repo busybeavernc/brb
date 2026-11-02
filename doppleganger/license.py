@@ -72,7 +72,9 @@ class LicenseGate:
         self.free_total = 3600.0
         self.license_url = SERVER + "/license"
         self.offer = False
-        self.price, self.early_price = "$5", "$2.50"
+        self.price, self.early_price = "", ""
+        self.pitch, self.offer_text = "", ""      # the license dialog's words, written by the website
+        self.status_seq = 0                       # +1 each time the website answers
         self.key_problem = ""
         self.message = ""
         # the current lease
@@ -262,6 +264,9 @@ class LicenseGate:
             self.offer = bool(d.get("offer"))
             self.price = str(d.get("price") or self.price)
             self.early_price = str(d.get("early_price") or self.early_price)
+            self.pitch = str(d.get("pitch") or "")
+            self.offer_text = str(d.get("offer_text") or "")
+            self.status_seq += 1
             self.key_problem = str(d.get("key_problem") or "")
             server_key = d.get("key")
             if server_key and server_key != self.key:   # a key this computer was given (early-bird purchase, admin)

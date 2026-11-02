@@ -61,7 +61,9 @@ class Output:
         choice = self.cfg.output_camera
         if choice in ("doppleganger", "obs"):
             return choice
-        return "doppleganger" if vcamlib.installed_version() else "obs"
+        # auto: Windows always uses our own HappyHacks Virtual Camera (installed by the app/installer), never OBS;
+        # a Mac uses OBS Virtual Camera.
+        return "doppleganger" if vcamlib.is_windows() else "obs"
 
     def _connect(self) -> None:
         self._next_try = time.monotonic() + self.RETRY_SECONDS
@@ -126,11 +128,13 @@ def _explain_vcam_error(backend: str, msg: str) -> str:
             return "OBS Virtual Camera is busy - in OBS click 'Stop Virtual Camera' (or quit OBS)"
         return f"OBS Virtual Camera not connected: {msg}"
     if backend == "doppleganger":
+        if vcamlib.installed_version() is None:
+            return f"The {vcamlib.CAMERA_NAME} isn't installed yet - install it in Settings (Windows asks once)"
         if "already in use" in m:
-            return "The Doppleganger camera is in use by another copy of this app - close it"
-        return f"Doppleganger camera not available ({msg}) - reinstall it from the tray menu"
+            return "The HappyHacks Virtual Camera is in use by another copy of Doppleganger - close it"
+        return f"HappyHacks Virtual Camera not available ({msg}) - reinstall it in Settings"
     if "not installed" in m:
-        return ("No camera to send to - install the Doppleganger camera (tray menu) "
+        return ("No camera to send to - install the HappyHacks Virtual Camera (Settings) "
                 "or OBS Studio")
     if "could not be started" in m or "in use" in m or "already" in m:
         return "OBS Virtual Camera is busy - in OBS click 'Stop Virtual Camera' (or close OBS)"
@@ -273,18 +277,18 @@ class Engine:
         self.notify(f"Camera: {match[1]}{tip}", 6)
         log.info("Switched camera to %s (#%d)", match[1], match[0])
 
-    # ---------- Doppleganger camera driver ----------
+    # ---------- HappyHacks Virtual Camera (our camera driver) ----------
     def install_driver(self, ask: bool = False) -> None:
         if not vcamlib.bundled():
-            self.notify("The Doppleganger camera is only included in the installed app.")
+            self.notify("The HappyHacks Virtual Camera is only included in the installed app.")
             return
         if ask and not self.ask(
-                "Add the Doppleganger camera?",
-                "Doppleganger can add its own camera, named \"Doppleganger\", that Zoom, Teams and "
+                "Add the HappyHacks Virtual Camera?",
+                "Doppleganger can add its own camera, named \"HappyHacks Virtual Camera\", that Zoom, Teams and "
                 "browsers can use - no OBS Studio needed.\n\nWindows will ask for permission once.\n\n"
                 "Install it now?"):
             return
-        self.notify("Installing the Doppleganger camera - approve the Windows prompt...", 120)
+        self.notify("Installing the HappyHacks Virtual Camera - approve the Windows prompt...", 120)
 
         def work():
             ok, detail = vcamlib.install()
@@ -297,14 +301,14 @@ class Engine:
         threading.Thread(target=work, daemon=True).start()
 
     def uninstall_driver(self) -> None:
-        if not self.ask("Remove the Doppleganger camera?",
-                        "Zoom and other apps will no longer see the \"Doppleganger\" camera.\n\nRemove it?"):
+        if not self.ask("Remove the HappyHacks Virtual Camera?",
+                        "Zoom and other apps will no longer see the \"HappyHacks Virtual Camera\".\n\nRemove it?"):
             return
         self.output.close()  # release our handle on the DLL first
 
         def work():
             ok, detail = vcamlib.uninstall()
-            self.notify("Doppleganger camera removed." if ok else f"Removal didn't finish ({detail}).", 6)
+            self.notify("HappyHacks Virtual Camera removed." if ok else f"Removal didn't finish ({detail}).", 6)
             self.request("output_reconnect")
 
         threading.Thread(target=work, daemon=True).start()
@@ -652,7 +656,7 @@ class Engine:
                 self.uninstall_driver()
             elif a == "driver_installed":
                 self.output.reconnect()
-                self.notify("Doppleganger camera installed - choose \"Doppleganger\" as your camera in Zoom.", 10)
+                self.notify("HappyHacks Virtual Camera installed - choose \"HappyHacks Virtual Camera\" as your camera in Zoom.", 10)
             elif a == "output_reconnect":
                 self.output.reconnect()
             elif a == "update":
@@ -833,10 +837,42 @@ class Engine:
             self._draw_outlines(prev, live, self.player.first_frame if self.player else None)
         if self.cut.waiting:
             guides.banner(prev, f"Hold to sync - cutting when in sync ({int(self.sync * 100)}%)", brand.CV_VIOLET)
+        self._draw_on_air(prev)
         left = self.lic.remaining() if self.mode == "loop" else None
         if left is not None and left <= 30:
             guides.banner(prev, f"Free LOOP time ends in {format_left(left)} - then back to LIVE", brand.CV_AMBER)
         return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB)
+
+    def _draw_on_air(self, prev: np.ndarray) -> None:
+        """What Zoom sees right now, impossible to miss: a pulsing ON AIR sign (top right) and a border in the
+        mode's colour - aqua LIVE, violet LOOP, amber GLITCH."""
+        h, w = prev.shape[:2]
+        if self.glitch.active:
+            mode, color = "GLITCH", brand.CV_AMBER
+        elif self.mode == "loop":
+            mode, color = "LOOP", brand.CV_VIOLET
+        else:
+            mode, color = "LIVE", brand.CV_AQUA_DARK
+        pulse = 0.5 + 0.5 * np.sin(time.monotonic() * 2 * np.pi * 0.8)   # ~0.8 Hz, like a studio light
+        t = max(4, w // 160)
+        border = np.zeros_like(prev)
+        cv2.rectangle(border, (0, 0), (w - 1, h - 1), color, t * 2)
+        a = 0.55 + 0.35 * pulse
+        mask = border.any(axis=2)
+        prev[mask] = (prev[mask] * (1 - a) + border[mask] * a).astype(prev.dtype)
+        # ON AIR · LOOP
+        scale = max(0.7, w / 1250)
+        text = f"ON AIR  ·  {mode}"
+        tw, th = guides.text_size(text, scale, bold=True)
+        right, top = w - 14 - t, 12 + t
+        x0 = right - tw - 58
+        guides.rounded_rect(prev, (x0, top), (right, top + th + 18), color, (th + 18) // 2, opacity=0.92)
+        r = max(6, th // 3)
+        cy = top + (th + 18) // 2
+        glow = tuple(int(255 * (0.45 + 0.55 * pulse)) for _ in range(3))
+        cv2.circle(prev, (x0 + 20, cy), r + 3, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.circle(prev, (x0 + 20, cy), r - 1, glow, -1, cv2.LINE_AA)
+        guides.put_text(prev, text, (x0 + 38, top + 9 + th - 4), scale, (255, 255, 255), bold=True, shadow=False)
 
     def close(self) -> None:
         if getattr(self, "_closed", False):

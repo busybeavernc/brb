@@ -52,14 +52,15 @@ Release files are signed with a self-signed "Doppleganger" certificate (`doppleg
 
 | Area | What it does |
 |---|---|
-| **LIVE / LOOP** | What Zoom sees right now. LIVE is Aqua, LOOP is Violet; GLITCH appears in amber while a fake bad connection is running. |
+| **Toolbar** | *Settings*, *Setup Guide*, and *View*: Normal or Mini Bar, larger / smaller text. |
+| **LIVE / LOOP** | What Zoom sees right now. LIVE is Aqua, LOOP is Violet; GLITCH appears in amber while a fake bad connection is running. The preview shows it too: a pulsing **ON AIR** sign and a border in the same colour. While recording, the badge turns red with the time (● REC 0:42 / 1:30). |
 | **Sync** | How seamless a cut would be right now (Aqua = in sync). |
 | **Cut button** | **Tap:** cut immediately (hard cut). **Hold:** Doppleganger waits and cuts by itself the moment you're in sync; let go first to cancel. The button wears the colour of where you're cutting *to*. |
 | **Glitch / Record loop** | See below. |
 | **Webcam** | Pick which camera is your live feed (virtual cameras are never offered). |
 | **Loops** | Your loop library: thumbnails, names (*Rename*), *Use*, *Delete*. A ⚠ appears when a loop's lighting doesn't match your room right now (darker, brighter, different colour). |
-| **Mini bar** | A compact always-on-top strip with a live thumbnail, sync meter, Cut and Glitch, to park beside Zoom. Drag it by the logo; *Full view* brings the window back. |
-| **Settings** | Privacy, crossfade, guides, overlay strength, the Doppleganger camera, updates. |
+| **Mini Bar** (*View → Mini Bar*) | A compact always-on-top strip with a live thumbnail, sync meter, Cut and Glitch, to park beside Zoom. Drag it by the logo; *Full view* brings the window back. |
+| **Settings** | License, text size, privacy, crossfade, guides, outlines, overlay strength, **recording length (60-600 s, default 90)**, the camera, updates. |
 
 **Hidden from screen sharing:** Doppleganger's windows (main, mini bar, setup, settings) are excluded from screen capture. When you share your screen, viewers see what's behind them. This also hides them from your own screenshots. Turn it off in *Settings → Privacy*.
 
@@ -105,7 +106,7 @@ When you press **Record** (button, **R** or the tray menu), a short *Before you 
 
 Press **Start recording** (or **R** again) to begin. You can turn the card off with *Don't show this again* or in Settings. While a new loop is being stitched, a small progress window appears and cuts are paused for a moment.
 
-| Time (default 90 s) | What you'll see | What to do |
+| Time (default 90 s; *Settings → Recording*: 60-600 s) | What you'll see | What to do |
 |---|---|---|
 | 3 s countdown | "Get in your start pose" | Settle into a comfortable, centered position |
 | 0–10 s | **HOLD STILL** + movement meter | No big head or body movement; this becomes the loop's first frame and your silhouette |
@@ -124,11 +125,11 @@ The app finds the frame in the final seconds that best matches the first, ends t
 
 Press **F10**. Zoom's picture turns jerky and random: frozen frames, uneven bursts, and the occasional sharp in-between frame. It never goes blurry or blocky and never drops out. Your preview keeps the overlay, so you can line up with the frozen picture. Then press (or hold) **F9**: the next jump reveals you live, with a few catch-up steps before it runs smoothly. F10 again also ends it, and it stops by itself after 30 s.
 
-## The Doppleganger camera
+## The HappyHacks Virtual Camera
 
 A small DirectShow camera filter (64- and 32-bit) installed in `C:\ProgramData\Doppleganger`, built from [softcam](https://github.com/tshino/softcam) (MIT) with its own name and ID, so it never clashes with OBS or other virtual cameras.
 
-Zoom can select it any time. Whenever the Doppleganger app isn't running (not started yet, or quit), the camera shows a neutral dark **"Camera starting…"** picture. It's deliberately generic, because meeting participants can see it, and it's never a frozen frame of you. To make sure the camera always has a real picture, turn on *Settings → Start Doppleganger when Windows starts*; it opens minimized. If it isn't installed, Doppleganger falls back to OBS Virtual Camera (OBS must be installed and closed).
+Zoom, Teams and browsers list it as **HappyHacks Virtual Camera** (older versions called it "Doppleganger": pick the new name once in Zoom). The installer adds it, and Doppleganger installs or updates it by itself when needed (Windows asks for permission). On Windows Doppleganger always uses it, never OBS, unless you set `output_camera` to `obs`. Zoom can select it any time. Whenever the Doppleganger app isn't running (not started yet, or quit), the camera shows a neutral dark **"Camera starting…"** picture. It's deliberately generic, because meeting participants can see it, and it's never a frozen frame of you. To make sure the camera always has a real picture, turn on *Settings → Start Doppleganger when Windows starts*; it opens minimized.
 
 ## Settings file
 
@@ -136,7 +137,7 @@ Zoom can select it any time. Whenever the Doppleganger app isn't running (not st
 
 ## Development
 
-**Releases:** every push runs the tests only. To build and publish a new version (Windows installer and both Mac apps), go to GitHub → **Actions → Build → Run workflow**, or push a commit whose message contains `[release]`. Installed copies update themselves to the new version the next time they open.
+**Releases:** every push runs the tests only. To build and publish a new version, go to GitHub → **Actions → Build → Run workflow** (tick *Also build the Mac apps* to include them; otherwise it's Windows only), or push a commit whose message contains `[release]` (add `[mac]` for the Mac apps too). Installed copies update themselves to the new version the next time they open.
 
 ```
 pip install -r requirements.txt pytest
