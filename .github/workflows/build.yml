@@ -35,9 +35,9 @@ permissions:                 # least privilege: only the release jobs can write
 env:
   # Build numbers continue from the old "Build Windows app" workflow (last release v0.1.15).
   BUILD_OFFSET: 15
-  # Downloads live in the public repo busybeavernc/doppleganger-public (this code repo can be private).
+  # Downloads live in the public repo busybeavernc/brb-public (this code repo can be private).
   # PUBLIC_RELEASES_TOKEN: fine-grained token with Contents: read & write on that repo only.
-  PUBLIC_REPO: busybeavernc/doppleganger-public
+  PUBLIC_REPO: busybeavernc/brb-public
   PUBLIC_TOKEN: ${{ secrets.PUBLIC_RELEASES_TOKEN }}
   SIGN_PFX: ${{ secrets.SIGNING_CERT_PFX_BASE64 }}
   SIGN_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
@@ -315,7 +315,7 @@ jobs:
       # that this repository's release workflow produced it. Works whether this repository is public or private
       # (GitHub's own attestations need GitHub Enterprise for private repositories). Anyone can check a download:
       #   pip install sigstore
-      #   sigstore verify github BRBSetup.exe --repository busybeavernc/doppleganger
+      #   sigstore verify github BRBSetup.exe --repository busybeavernc/brb
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"

@@ -6,7 +6,9 @@ import os
 from dataclasses import asdict, dataclass, fields
 
 
-LEGACY_UPDATE_REPO = "busybeavernc/doppleganger"
+# earlier names of the downloads repository (saved in existing config.json files); GitHub redirects them, but
+# the current name avoids depending on that
+OLD_UPDATE_REPOS = {"busybeavernc/doppleganger", "busybeavernc/doppleganger-public"}
 
 
 @dataclass
@@ -40,7 +42,7 @@ class Config:
 
     # Updates (installed Doppleganger.exe only)
     auto_update: bool = True            # check GitHub Releases each time the app opens
-    update_repo: str = "busybeavernc/doppleganger-public"  # public downloads (the code repo may be private)
+    update_repo: str = "busybeavernc/brb-public"  # public downloads (the code repo may be private)
     update_token: str = ""              # read-only GitHub token, needed only while the repo is private
     eula_accepted: str = ""             # EULA version accepted (asked again only when the EULA changes)
     license_key: str = ""               # Doppleganger license key (checked with brb.happyhacks.io)
@@ -76,7 +78,7 @@ class Config:
                 cfg.loop_seconds = float(max(60, min(600, float(cfg.loop_seconds))))
             except (TypeError, ValueError):
                 cfg.loop_seconds = 90.0
-            if cfg.update_repo == LEGACY_UPDATE_REPO:  # releases moved to the public downloads repo
+            if cfg.update_repo in OLD_UPDATE_REPOS:
                 cfg.update_repo = cls.update_repo
         return cfg
 

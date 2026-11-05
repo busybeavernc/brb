@@ -80,23 +80,11 @@ def test_mac_asset_name_and_update_script(tmp_path):
     assert subprocess.run(["sh", "-n", str(p)]).returncode == 0
 
 
-def test_falls_back_to_old_repo_while_releases_move():
-    calls = []
-
-    def fake(req, timeout):
-        calls.append(req.full_url)
-        if "doppleganger-public" in req.full_url:
-            raise urllib.error.HTTPError("u", 404, "Not Found", None, None)
-        return _fake_release("v0.1.9")(req, timeout)
-
-    with mock.patch.object(updater, "current_version", return_value="0.1.5"), \
-         mock.patch("urllib.request.urlopen", fake):
-        rel = updater.check("busybeavernc/doppleganger-public")
-    assert rel.version == "0.1.9" and len(calls) == 2
-
-
 def test_old_config_points_updates_to_public_repo(tmp_path):
     from doppleganger.config import Config
     p = tmp_path / "config.json"
-    p.write_text(json.dumps({"update_repo": "busybeavernc/doppleganger"}))
-    assert Config.load(str(p)).update_repo == "busybeavernc/doppleganger-public"
+    for old in ("busybeavernc/doppleganger", "busybeavernc/doppleganger-public"):   # both renamed on GitHub
+        p.write_text(json.dumps({"update_repo": old}))
+        assert Config.load(str(p)).update_repo == "busybeavernc/brb-public"
+    p.write_text(json.dumps({"update_repo": "someone/fork"}))
+    assert Config.load(str(p)).update_repo == "someone/fork"
