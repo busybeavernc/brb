@@ -166,7 +166,7 @@ def apply_and_restart(new_exe: str) -> None:
         script = os.path.join(tempfile.gettempdir(), "doppleganger_update.sh")
         with open(script, "w", encoding="utf-8") as f:
             f.write(mac_update_script(new_exe, macos.app_bundle(), os.getpid()))
-        os.chmod(script, 0o755)
+        os.chmod(script, 0o700)   # only this user
         subprocess.Popen(["/bin/sh", script], start_new_session=True, close_fds=True, env=clean_environment())
         os._exit(0)
     exe = sys.executable

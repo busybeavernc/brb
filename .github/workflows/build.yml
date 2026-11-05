@@ -300,8 +300,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write            # create the release
-      id-token: write            # sign the build provenance
-      attestations: write
+      id-token: write            # Sigstore signing (the workflow's identity)
     outputs:
       tag: ${{ steps.pub.outputs.tag }}
     steps:
@@ -312,14 +311,19 @@ jobs:
           name: windows
           path: artifacts
 
-      # A signed record of which workflow run built each file, from which commit; anyone can check a download with
-      # `gh attestation verify BRBSetup.exe --repo busybeavernc/doppleganger`
-      - name: Build provenance
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+      # Sigstore signatures (keyless): each file gets a .sigstore.json bundle, a signed, publicly logged statement
+      # that this repository's release workflow produced it. Works whether this repository is public or private
+      # (GitHub's own attestations need GitHub Enterprise for private repositories). Anyone can check a download:
+      #   pip install sigstore
+      #   sigstore verify github BRBSetup.exe --repository busybeavernc/doppleganger
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          subject-path: |
-            artifacts/BRBSetup.exe
-            artifacts/BRB.exe
+          python-version: "3.12"
+
+      - name: Sign with Sigstore
+        run: |
+          pip install sigstore==4.5.1
+          python -m sigstore sign artifacts/BRBSetup.exe artifacts/BRB.exe
 
       - name: Publish release
         id: pub
@@ -336,7 +340,8 @@ jobs:
           # Doppleganger.exe: the same app under its old name, so copies installed before the rename to BRB update
           # themselves (their updater looks for that file name)
           cp artifacts/BRB.exe artifacts/Doppleganger.exe
-          files="artifacts/BRBSetup.exe artifacts/BRB.exe artifacts/Doppleganger.exe installer/doppleganger-publisher.cer"
+          files="artifacts/BRBSetup.exe artifacts/BRB.exe artifacts/Doppleganger.exe installer/doppleganger-publisher.cer
+            artifacts/BRBSetup.exe.sigstore.json artifacts/BRB.exe.sigstore.json"
           gh release create "v$v" $files --title "BRB $v" --notes "$notes" --target "$GITHUB_SHA" --latest
           if [ -n "$PUBLIC_TOKEN" ]; then
             GH_TOKEN="$PUBLIC_TOKEN" gh release create "v$v" $files -R "$PUBLIC_REPO" \
@@ -353,7 +358,6 @@ jobs:
     permissions:
       contents: write
       id-token: write
-      attestations: write
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -361,13 +365,9 @@ jobs:
           merge-multiple: true
           path: artifacts
 
-      - name: Build provenance
-        if: hashFiles('artifacts/*.dmg', 'artifacts/*.zip') != ''
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          subject-path: |
-            artifacts/*.dmg
-            artifacts/*.zip
+          python-version: "3.12"
 
       - name: Add the Mac apps to the release
         env:
@@ -376,6 +376,9 @@ jobs:
           files=$(find artifacts -type f \( -name '*.dmg' -o -name '*.zip' \) | sort)
           echo "$files"
           if [ -z "$files" ]; then echo "::warning::No Mac build succeeded this time"; exit 0; fi
+          pip install sigstore==4.5.1
+          python -m sigstore sign $files
+          files="$files $(for f in $files; do echo "$f.sigstore.json"; done)"
           gh release upload "${{ needs.release.outputs.tag }}" $files --clobber -R "$GITHUB_REPOSITORY"
           if [ -n "$PUBLIC_TOKEN" ]; then
             GH_TOKEN="$PUBLIC_TOKEN" gh release upload "${{ needs.release.outputs.tag }}" $files --clobber -R "$PUBLIC_REPO"
