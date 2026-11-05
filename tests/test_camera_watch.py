@@ -48,6 +48,8 @@ def make_engine(monkeypatch, cams, current, name="Logitech BRIO", lost=False):
     e.camera, e.camera_name, e.camera_lost, e._lost_since = current, name, lost, 0.0
     e._actions = queue.Queue()
     e.toast, e.toast_until = "", 0.0
+    e.camera_problem, e.camera_unplugged, e.camera_alert = "", False, ""
+    monkeypatch.setattr(E.camera_users, "current", lambda: [])
     return e
 
 
@@ -102,3 +104,33 @@ def test_started_without_a_webcam_opens_the_first_one_plugged_in(monkeypatch):
 def test_placeholder_picture():
     img = placeholder(320, 180, "No webcam connected - plug one in")
     assert img.shape == (180, 320, 3) and img.mean() > 200
+
+
+def test_webcam_still_listed_but_silent_is_explained_as_in_use(monkeypatch):
+    e = make_engine(monkeypatch, ["Logitech BRIO"], FakeCam(1, delivers=False))
+    monkeypatch.setattr(E.camera_users, "current", lambda: ["Zoom"])
+    e._watch_once()
+    assert e.camera_lost and not e.camera_unplugged
+    assert "Zoom" in e.camera_problem and "HappyHacks Virtual Camera" in e.camera_problem
+    assert e.camera_alert == e.camera_problem          # popped up once
+    e.camera_alert = ""
+    e._watch_once()
+    assert e.camera_alert == ""                          # not again while it lasts
+
+
+def test_unplugged_webcam_is_explained_as_disconnected(monkeypatch):
+    e = make_engine(monkeypatch, ["Integrated Camera"], FakeCam(1, delivers=False))
+    e._cams = ["Integrated Camera", "Logitech BRIO"]
+    e._watch_once()
+    assert e.camera_unplugged and "disconnected" in e.camera_problem
+    assert e.camera_alert == ""                          # unplugged: the banner says enough, no pop-up
+
+
+def test_problem_clears_when_the_webcam_is_back(monkeypatch):
+    cam = FakeCam(1, delivers=False)
+    e = make_engine(monkeypatch, ["Logitech BRIO"], cam)
+    e._watch_once()
+    assert e.camera_problem
+    cam.delivers = True
+    e._watch_once()
+    assert not e.camera_lost and e.camera_problem == ""

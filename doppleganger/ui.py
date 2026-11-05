@@ -755,7 +755,12 @@ class MainWindow:
         if getattr(self, "_cams_seq", None) != e.cameras_seq:   # a webcam was plugged in or removed
             self._cams_seq = e.cameras_seq
             self.cam_box["values"] = e.tray_cameras()
+        if e.camera_alert:
+            alert, e.camera_alert = e.camera_alert, ""
+            self.root.after(10, lambda: messagebox.showwarning("BRB: your webcam is in use", alert, parent=self.root))
         msg = e.message
+        if e.camera_lost and e.camera_problem and not msg:   # stays up until the webcam is back
+            msg = e.camera_problem
         if e.mic.is_muted:
             msg = (msg + "   ·   " if msg else "") + "Microphone muted while the LOOP is on air"
         if IS_MAC and getattr(e, "_hk", None) is None and not msg:
@@ -1883,6 +1888,8 @@ class Wizard:
         box = ttk.Combobox(self.body, textvariable=var, state="readonly", values=self.e.tray_cameras(), width=42)
         box.pack(anchor="w")
         self._webcam_box, self._webcam_var, self._webcam_seq = box, var, self.e.cameras_seq
+        self._webcam_note = ttk.Label(self.body, text="", foreground=WARN_TEXT, wraplength=px(430), justify="left")
+        self._webcam_note.pack(anchor="w", pady=(12, 0))
         box.bind("<<ComboboxSelected>>", lambda _e: self.e.request(f"camera:{var.get()}"))
 
     def _page_calibrate(self):
@@ -1938,6 +1945,12 @@ class Wizard:
                 self._webcam_box["values"] = e.tray_cameras()
             if self._webcam_var.get() != e.camera_name:
                 self._webcam_var.set(e.camera_name)
+            note = e.camera_problem if e.camera_lost else ""
+            if not note and (e.message.startswith(("BRB can't get a picture", "No webcam"))
+                             or " is using a camera" in e.message):   # just failed to switch to the chosen webcam
+                note = e.message
+            if self._webcam_note.cget("text") != note:
+                self._webcam_note.configure(text=note)
             return
         if page == "camera" and not IS_MAC and self._camera_state(fresh=False) != self._cam_state:
             self.render()   # just installed (or removed): show the matching page

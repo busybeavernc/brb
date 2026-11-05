@@ -14,6 +14,7 @@ import numpy as np
 from . import guides, library, updater
 from . import vcam as vcamlib
 from .calibrate import Calibrator
+from . import camera_users
 from .camera import Camera, NoCamera, placeholder
 from .config import Config
 from .cutcontrol import SYNC_THRESHOLD, CutController
@@ -179,6 +180,9 @@ class Engine:
         self._cams_at = time.monotonic()
         self.cameras_seq = 0                 # bumps when webcams are plugged in or removed (the window refreshes)
         self.camera_lost = False             # the webcam stopped delivering (unplugged, or taken by another app)
+        self.camera_problem = ""             # while camera_lost: what's wrong and what to do (shown in the window)
+        self.camera_unplugged = False
+        self.camera_alert = ""               # set when the window should pop up camera_problem (once per episode)
         self._lost_since = 0.0
         idx, self.camera_name = vcamlib.resolve_camera(cfg.camera_name, cfg.camera_index)
         try:
@@ -290,10 +294,12 @@ class Engine:
             if not self.camera_lost and silent > self.LOST_AFTER:
                 self.camera_lost, self._lost_since = True, time.monotonic()
                 log.warning("Webcam %s stopped delivering (%.0f s)", self.camera_name, silent)
+                self._explain_camera(names, listed)
                 self.request("camera_lost")
                 return
             if not self.camera_lost:
                 return
+            self._explain_camera(names, listed)
             if silent < 1.0:   # it came back by itself
                 self._camera_back()
                 return
@@ -330,8 +336,26 @@ class Engine:
                 self.request("camera_background")
             self._camera_back()
 
+    def _explain_camera(self, names: list[str], listed: bool) -> None:
+        """Why there's no picture, in words: unplugged, none at all, or (usually) another app has it."""
+        if listed and not names:
+            self.camera_unplugged, problem = True, "No webcam found - plug one in."
+        else:
+            self.camera_unplugged = bool(self.camera_name) and listed and self.camera_name not in names
+            apps = [] if self.camera_unplugged else camera_users.current()
+            problem = camera_users.advice(self.camera_name, apps, self.camera_unplugged, self.output_camera_name())
+        if problem != self.camera_problem:
+            if not self.camera_problem and not self.camera_unplugged and names:
+                self.camera_alert = problem   # first time: pop it up (unplugged / no webcam: the banner says enough)
+            self.camera_problem = problem
+            log.info("Webcam problem: %s", problem)
+
+    def output_camera_name(self) -> str:
+        return "HappyHacks Virtual Camera" if vcamlib.is_windows() else "OBS Virtual Camera"
+
     def _camera_back(self) -> None:
         self.camera_lost = False
+        self.camera_problem, self.camera_unplugged = "", False
         self.cameras_seq += 1
         log.info("Webcam %s is back", self.camera_name)
         self.notify(f"Webcam connected: {self.camera_name}", 5)
@@ -382,7 +406,10 @@ class Engine:
             try:
                 self.camera = Camera(match[0], self.cfg.width, self.cfg.height, self.cfg.fps)
             except RuntimeError as e:
-                self.notify(str(e), 6)
+                log.info("Couldn't open %s: %s", match[1], e)
+                msg = camera_users.advice(match[1], camera_users.current(), False, self.output_camera_name())
+                self.notify(msg, 15)
+                self.camera_alert = msg
                 return
             old.close()
             self.camera_name = match[1]
@@ -398,8 +425,9 @@ class Engine:
         """Engine thread: the webcam stopped. A recording can't continue; the LOOP, if on air, simply carries on."""
         if self.recorder.state != State.IDLE or self.calibrator is not None:
             self.cancel()   # a recording or calibration can't continue without a picture
-        where = " - your LOOP stays on air" if self.mode == "loop" else ""
-        self.notify(f"Webcam disconnected{where}. Plug it back in, or choose another under Webcam.", 10)
+        where = "Your LOOP stays on air. " if self.mode == "loop" else ""
+        self.notify(where + (self.camera_problem or "Webcam disconnected. Plug it back in, or choose another under "
+                                                    "Webcam."), 15)
 
     # ---------- HappyHacks Virtual Camera (our camera driver) ----------
     def install_driver(self, ask: bool = False) -> None:
@@ -994,8 +1022,9 @@ class Engine:
         if self.cut.waiting:
             guides.banner(prev, f"Hold to sync - cutting when in sync ({int(self.sync * 100)}%)", brand.CV_VIOLET)
         if self.camera_lost:
-            guides.banner(prev, "Webcam disconnected - plug it back in, or choose another under Webcam",
-                          brand.CV_DANGER)
+            guides.banner(prev, "Webcam disconnected - plug it back in, or choose another under Webcam"
+                          if (self.camera_unplugged or not self.camera_problem) else
+                          "No picture from your webcam - another app may be using it (see below)", brand.CV_DANGER)
         self.badge_preview_rect = None
         if cfg.loop_badge and base is out:
             # Where the meeting will see it, on the same part of you in this (maybe mirrored) preview, reading as
