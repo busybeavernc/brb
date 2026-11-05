@@ -14,7 +14,7 @@ def _box(out, frame):
 def test_off_by_default_and_on_your_chest():
     c = Config()
     assert c.loop_badge is False
-    assert (c.badge_x, c.badge_y) == (0.5, 0.86) and c.badge_flip is False
+    assert (c.badge_x, c.badge_y) == (0.5, 0.86)
 
 
 def test_default_sits_low_and_centred_and_leaves_the_frame_alone():
@@ -41,14 +41,6 @@ def test_size_is_limited():
     frame = np.zeros((720, 1280, 3), np.uint8)
     x0, _, x1, _ = _box(guides.stamp_badge(frame, size=5.0), frame)
     assert x1 - x0 <= guides.BADGE_MAX * 1280 + 2
-
-
-def test_flip_mirrors_it():
-    frame = np.zeros((720, 1280, 3), np.uint8)
-    a = guides.stamp_badge(frame)
-    b = guides.stamp_badge(frame, flip=True)
-    x0, y0, x1, y1 = _box(a, frame)
-    assert np.abs(a[y0:y1 + 1, x0:x1 + 1].astype(int) - b[y0:y1 + 1, x0:x1 + 1][:, ::-1].astype(int)).mean() < 3
 
 
 def test_faint_version_for_the_preview():

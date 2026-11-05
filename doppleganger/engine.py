@@ -895,7 +895,7 @@ class Engine:
 
     def stamp_badge(self, frame: np.ndarray) -> np.ndarray:
         c = self.cfg
-        return guides.stamp_badge(frame, c.badge_x, c.badge_y, c.badge_size, c.badge_flip)
+        return guides.stamp_badge(frame, c.badge_x, c.badge_y, c.badge_size)
 
     def _compose(self, live: np.ndarray, loop_frame: np.ndarray | None, fade: bool = True) -> np.ndarray:
         cur = loop_frame if (self.mode == "loop" and loop_frame is not None) else live
@@ -1002,7 +1002,7 @@ class Engine:
             # the meeting sees it. Faint while LIVE, so you can see and drag it into place before stepping away.
             cx = 1.0 - cfg.badge_x if cfg.mirror_preview else cfg.badge_x
             ph, pw = prev.shape[:2]
-            prev = guides.stamp_badge(prev, cx, cfg.badge_y, cfg.badge_size, cfg.badge_flip,
+            prev = guides.stamp_badge(prev, cx, cfg.badge_y, cfg.badge_size,
                                       opacity=1.0 if self.mode == "loop" else 0.5)
             self.badge_preview_rect = guides.badge_rect(pw, ph, cx, cfg.badge_y, cfg.badge_size)
         self._draw_on_air(prev)

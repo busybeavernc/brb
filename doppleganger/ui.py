@@ -1364,7 +1364,8 @@ class SettingsWindow:
         ttk.Label(f, text="Lets others see you've stepped away for a moment. Use it if your organizer asks for it, "
                           "or if you simply prefer it.\nDrag it in the preview to move it, and scroll over it to "
                           "resize it. Keep it on you (your chest, say): meeting apps' background blur and virtual "
-                          "backgrounds hide anything that isn't you.",
+                          "backgrounds hide anything that isn't you. (If it reads backwards in your own view of "
+                          "yourself, that's your meeting app mirroring it for you only: others see it the right way.)",
                   style="Small.TLabel", wraplength=px(420), justify="left").grid(sticky="w", padx=(44, 0))
         bs = ttk.Frame(f)
         bs.grid(sticky="ew", pady=(6, 0), padx=(44, 0))
@@ -1373,12 +1374,6 @@ class SettingsWindow:
         ttk.Scale(bs, from_=guides.BADGE_MIN, to=guides.BADGE_MAX, variable=self.v_badge_size, length=160,
                   command=lambda _v: self._badge_changed()).pack(side="left", padx=8)
         ttk.Button(bs, text="Reset position and size", command=self._badge_reset).pack(side="left", padx=(8, 0))
-        self.v_badge_flip = tk.BooleanVar(value=self.cfg.badge_flip)
-        Toggle(f, text="Flip horizontally", variable=self.v_badge_flip,
-               command=self._badge_changed).grid(sticky="w", padx=(44, 0), pady=(6, 0))
-        ttk.Label(f, text="For when it reads backwards. Note: Zoom and some other apps mirror only your own view of "
-                          "yourself; everyone else sees the watermark the right way round unless it's flipped.",
-                  style="Small.TLabel", wraplength=px(420), justify="left").grid(sticky="w", padx=(88, 0))
 
         ttk.Label(f, text="Cuts & preview", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
         self.v_fade = tk.BooleanVar(value=self.cfg.crossfade_ms > 0)
@@ -1468,7 +1463,6 @@ class SettingsWindow:
 
     def _badge_changed(self) -> None:
         self.cfg.badge_size = round(float(self.v_badge_size.get()), 3)
-        self.cfg.badge_flip = bool(self.v_badge_flip.get())
         self.cfg.save(self.e.config_path)
 
     def _badge_reset(self) -> None:

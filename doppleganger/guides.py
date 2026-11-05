@@ -265,14 +265,12 @@ BADGE_X, BADGE_Y, BADGE_SIZE = 0.5, 0.86, 0.16   # default: low and centred, i.e
 BADGE_MIN, BADGE_MAX = 0.06, 0.35
 
 
-def _badge(bw: int, flip: bool):
-    key = (bw, flip)
+def _badge(bw: int):
+    key = bw
     if key not in _badge_cache:
         src = cv2.imread(brand.asset("watermark.png"), cv2.IMREAD_UNCHANGED)
         if src is None or src.shape[2] != 4:
             return None
-        if flip:
-            src = cv2.flip(src, 1)
         bh = max(1, round(bw * src.shape[0] / src.shape[1]))
         small = cv2.resize(src, (bw, bh), interpolation=cv2.INTER_AREA)
         alpha = small[..., 3:4].astype(np.float32) / 255.0
@@ -284,7 +282,7 @@ def badge_rect(w: int, h: int, cx: float = BADGE_X, cy: float = BADGE_Y,
                size: float = BADGE_SIZE) -> tuple[int, int, int, int] | None:
     """(x0, y0, x1, y1) of the badge centred at (cx, cy) (fractions of the frame), kept inside the frame."""
     bw = max(24, int(w * min(BADGE_MAX, max(BADGE_MIN, size))))
-    b = _badge(bw, False)
+    b = _badge(bw)
     if b is None:
         return None
     bh = b[0].shape[0]
@@ -297,15 +295,14 @@ def badge_rect(w: int, h: int, cx: float = BADGE_X, cy: float = BADGE_Y,
 
 
 def stamp_badge(frame: np.ndarray, cx: float = BADGE_X, cy: float = BADGE_Y, size: float = BADGE_SIZE,
-                flip: bool = False, opacity: float = 1.0) -> np.ndarray:
-    """A copy of `frame` with the BRB badge centred at (cx, cy), `size` = its width as a fraction of the frame's.
-    `flip` mirrors it left-right (it then reads correctly in a mirrored view)."""
+                opacity: float = 1.0) -> np.ndarray:
+    """A copy of `frame` with the BRB badge centred at (cx, cy), `size` = its width as a fraction of the frame's."""
     h, w = frame.shape[:2]
     r = badge_rect(w, h, cx, cy, size)
     if r is None:
         return frame
     x0, y0, x1, y1 = r
-    color, alpha = _badge(x1 - x0, flip)
+    color, alpha = _badge(x1 - x0)
     if opacity < 1.0:
         color, alpha = color * opacity, alpha * opacity
     out = frame.copy()   # never draw into a frame someone else holds (the loop buffer)
