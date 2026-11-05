@@ -53,6 +53,7 @@ Name: "trustpublisher"; Description: "Trust this app's publisher certificate on 
 [Files]
 Source: "..\dist\{#MyAppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "doppleganger-publisher.cer"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{userprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Comment: "Need a moment? Be right back."

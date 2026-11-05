@@ -138,6 +138,9 @@ jobs:
         shell: cmd
         run: signtool sign /q /fd SHA256 /f "%SIGN_FILE%" /p "%SIGN_PASSWORD%" /tr http://timestamp.digicert.com /td SHA256 /d "BRB" driver_build\doppleganger_cam64.dll driver_build\doppleganger_cam32.dll driver_build\listcams.exe driver_build\micmute.exe
 
+      - name: Third-party notices
+        run: python tools/third_party_notices.py THIRD-PARTY-NOTICES.txt
+
       - name: Build BRB.exe
         run: >
           pyinstaller --noconfirm --onefile --windowed --name BRB
@@ -149,9 +152,9 @@ jobs:
           --add-data "driver_build/listcams.exe;driver"
           --add-data "driver_build/micmute.exe;driver"
           --add-data "driver_build/SOFTCAM-LICENSE.txt;driver"
+          --add-data "THIRD-PARTY-NOTICES.txt;."
           --collect-data cv2
           --collect-all mediapipe
-          --collect-binaries pyvirtualcam
           --hidden-import pynput.keyboard._win32
           --hidden-import pynput.mouse._win32
           --hidden-import pystray._win32
@@ -224,6 +227,9 @@ jobs:
           v="$base.$(( ${{ github.run_number }} + BUILD_OFFSET ))"
           echo "VERSION = \"$v\"" > doppleganger/_build.py
           echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Third-party notices
+        run: python tools/third_party_notices.py THIRD-PARTY-NOTICES.txt
 
       - name: Build BRB.app
         env:

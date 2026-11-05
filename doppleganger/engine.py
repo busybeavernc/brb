@@ -72,7 +72,10 @@ class Output:
             if backend == "doppleganger":
                 self.cam = vcamlib.DopplegangerCamera(self.cfg.width, self.cfg.height, self.cfg.fps)
             else:
-                import pyvirtualcam
+                try:
+                    import pyvirtualcam
+                except ImportError:   # not in the Windows build: Windows uses the HappyHacks Virtual Camera
+                    raise RuntimeError("OBS output isn't included in this version - set output_camera to auto")
                 self.cam = pyvirtualcam.Camera(self.cfg.width, self.cfg.height, self.cfg.fps,
                                                fmt=pyvirtualcam.PixelFormat.BGR, backend="obs")
             self.backend, self.device, self.error = backend, self.cam.device, ""

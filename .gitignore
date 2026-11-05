@@ -15,3 +15,4 @@ driver_src/
 driver_build/
 background-*.png
 !installer/doppleganger-mac.spec
+THIRD-PARTY-NOTICES.txt
