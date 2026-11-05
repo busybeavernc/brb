@@ -29,8 +29,8 @@ concurrency:                 # a newer push replaces a test run that hasn't fini
   group: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')) && 'release' || 'test' }}-${{ github.ref }}
   cancel-in-progress: ${{ !(github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')) }}
 
-permissions:
-  contents: write
+permissions:                 # least privilege: only the release jobs can write
+  contents: read
 
 env:
   # Build numbers continue from the old "Build Windows app" workflow (last release v0.1.15).
@@ -47,9 +47,9 @@ jobs:
     if: ${{ !(github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')) }}
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 
@@ -67,7 +67,7 @@ jobs:
     if: ${{ !(github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')) }}
     runs-on: macos-15-intel
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Compile (Intel and Apple Silicon)
         run: |
           for arch in x86_64 arm64; do
@@ -94,9 +94,9 @@ jobs:
     if: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')) }}
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 
@@ -118,7 +118,7 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
       # ---- The "Doppleganger" camera: softcam (MIT) renamed and built for 64- and 32-bit apps ----
-      - uses: microsoft/setup-msbuild@v2
+      - uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
 
       - name: Build Doppleganger camera driver
         shell: pwsh
@@ -143,7 +143,7 @@ jobs:
           Copy-Item $dll32.FullName driver_build\doppleganger_cam32.dll
           Copy-Item driver\SOFTCAM-LICENSE.txt driver_build\
 
-      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
         with:
           arch: x64
 
@@ -212,7 +212,7 @@ jobs:
         shell: pwsh
         run: Remove-Item -Force -ErrorAction SilentlyContinue "$env:RUNNER_TEMP\sign.pfx"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows
           path: |
@@ -232,9 +232,9 @@ jobs:
             arch: x86_64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 
@@ -286,7 +286,7 @@ jobs:
           hdiutil create -volname BRB -srcfolder dmg -ov -format UDZO "dist/$name.dmg"
           ls -la dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mac-${{ matrix.arch }}
           path: |
@@ -298,15 +298,28 @@ jobs:
   release:
     needs: windows
     runs-on: ubuntu-latest
+    permissions:
+      contents: write            # create the release
+      id-token: write            # sign the build provenance
+      attestations: write
     outputs:
       tag: ${{ steps.pub.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: windows
           path: artifacts
+
+      # A signed record of which workflow run built each file, from which commit; anyone can check a download with
+      # `gh attestation verify BRBSetup.exe --repo busybeavernc/doppleganger`
+      - name: Build provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            artifacts/BRBSetup.exe
+            artifacts/BRB.exe
 
       - name: Publish release
         id: pub
@@ -337,12 +350,24 @@ jobs:
     needs: [release, mac]
     if: always() && needs.release.result == 'success' && needs.mac.result != 'skipped'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: mac-*
           merge-multiple: true
           path: artifacts
+
+      - name: Build provenance
+        if: hashFiles('artifacts/*.dmg', 'artifacts/*.zip') != ''
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            artifacts/*.dmg
+            artifacts/*.zip
 
       - name: Add the Mac apps to the release
         env:
