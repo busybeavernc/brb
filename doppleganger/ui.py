@@ -879,26 +879,6 @@ class ScrollArea(tk.Frame):
 EULA_VERSION = "1"   # bump when assets/EULA.md changes in a way people must accept again
 EULA_URL = "https://brb.happyhacks.io/eula"
 PRIVACY_URL = "https://brb.happyhacks.io/privacy"
-IT_URL = "https://brb.happyhacks.io/it"
-
-
-def work_computer_row(parent, root, text: str) -> ttk.Frame:
-    """"Using a work computer?": open the page for IT teams, or copy its link for a software request."""
-    box = ttk.Frame(parent)
-    ttk.Label(box, text=text, style="Small.TLabel", wraplength=px(430), justify="left").pack(anchor="w")
-    row = ttk.Frame(box)
-    row.pack(anchor="w", pady=(4, 0))
-    ttk.Button(row, text="Page for IT", command=lambda: __import__("webbrowser").open(IT_URL)).pack(side="left")
-    copy = ttk.Button(row, text="Copy link")
-
-    def do_copy():
-        root.clipboard_clear()
-        root.clipboard_append(IT_URL)
-        copy.configure(text="Copied!")
-        root.after(1500, lambda: copy.winfo_exists() and copy.configure(text="Copy link"))
-    copy.configure(command=do_copy)
-    copy.pack(side="left", padx=6)
-    return box
 
 
 def eula_text() -> str:
@@ -1601,9 +1581,6 @@ class Wizard:
         ttk.Label(self.body, text="Pick a look for BRB (you can change it any time in Settings):",
                   style="Small.TLabel").pack(anchor="w", pady=(10, 4))
         theme_row(self.body, self.main, lambda: ("wizard", self.STEPS[self.step])).pack(anchor="w")
-        work_computer_row(self.body, self.win, "Using a work computer? Your IT team may need to approve BRB first: "
-                          "send them our page for IT.").pack(
-            anchor="w", pady=(14, 0))
 
     def _page_camera(self):
         if IS_MAC:
@@ -1613,8 +1590,6 @@ class Wizard:
                    "Windows asks for permission once.")
         self._button("Install camera", "install_driver")
         self._status()
-        work_computer_row(self.body, self.win, "Can't approve the Windows prompt on a work computer? Your IT team can "
-                          "install the camera for you; send them our page for IT.").pack(anchor="w", pady=(16, 0))
 
     def _page_camera_mac(self):
         self._title("1  Set up the OBS camera")
