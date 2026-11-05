@@ -46,3 +46,22 @@ def test_install_script_cleans_up_old_folder_without_unregistering():
     text = "\n".join(lines)
     assert "doppleganger_cam64.dll" in text and "rmdir" in text
     assert "regsvr32" not in text   # same CLSID: unregistering the old DLL would remove the new camera
+
+
+def test_old_camera_folder_cleanup_runs_on_windows(tmp_path):
+    """The real batch commands (no admin needed in a temporary folder): old DLLs go, the folder goes."""
+    import subprocess
+    import sys
+    import pytest
+    if sys.platform != "win32":
+        pytest.skip("Windows only")
+    old = tmp_path / "Doppleganger"
+    old.mkdir()
+    for n in (vcam.OLD_DLL64, vcam.OLD_DLL32, "version.txt", "SOFTCAM-LICENSE.txt"):
+        (old / n).write_bytes(b"x")
+    with mock.patch.dict(os.environ, {"ProgramData": str(tmp_path)}):
+        lines = vcam._remove_old_folder_lines()
+    bat = tmp_path / "t.bat"
+    bat.write_text("@echo off\r\n" + "\r\n".join(lines) + "\r\nexit /b 0\r\n")
+    assert subprocess.run(["cmd.exe", "/c", str(bat)]).returncode == 0
+    assert not old.exists()
