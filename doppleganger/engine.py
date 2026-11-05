@@ -753,6 +753,11 @@ class Engine:
                 self.cancel()
             elif a == "outlines":
                 self.toggle_outlines()
+            elif a == "badge":
+                self.cfg.loop_badge = not self.cfg.loop_badge
+                self.cfg.save(self.config_path)
+                self.notify("BRB badge on: the meeting sees it while the LOOP is on air." if self.cfg.loop_badge
+                            else "BRB badge off.")
             elif a == "end_recording":
                 self.recorder.end_now()
             elif a == "toggle_view":

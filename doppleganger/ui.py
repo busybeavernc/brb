@@ -191,6 +191,82 @@ class HoldButton(tk.Label):
             self.configure(bg=bg, fg=fg)
 
 
+_SWITCH_IMAGES: dict = {}
+
+
+def _switch_images() -> dict:
+    """Slide-switch pictures (off / on / disabled), drawn smooth at 4x and scaled down; one set per colour theme."""
+    key = (brand.THEME, px(36))
+    if key not in _SWITCH_IMAGES:
+        from PIL import ImageDraw
+        w, h, k = px(36), px(20), 4
+        W, H = w * k, h * k
+
+        def draw(track, knob, on):
+            im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            d = ImageDraw.Draw(im)
+            d.rounded_rectangle((0, 0, W - 1, H - 1), radius=H // 2, fill=track)
+            pad = 2 * k
+            x0 = W - H + pad if on else pad
+            d.ellipse((x0, pad, x0 + H - 2 * pad, H - pad), fill=knob)
+            return ImageTk.PhotoImage(im.resize((w, h), Image.LANCZOS))
+        _SWITCH_IMAGES[key] = {"off": draw(BORDER, IVORY, False), "on": draw(TEAL, IVORY, True),
+                               "off_disabled": draw(SURFACE, MIDNIGHT, False),
+                               "on_disabled": draw(BORDER, SURFACE, True)}
+    return _SWITCH_IMAGES[key]
+
+
+class Toggle(ttk.Frame):
+    """A slide switch with its label (in place of a checkbox): click the switch or the words.
+    Same use as ttk.Checkbutton: Toggle(parent, text=..., variable=BooleanVar, command=...)."""
+
+    def __init__(self, parent, text: str, variable: tk.BooleanVar, command=None, wraplength: int | None = None,
+                 style: str = "TLabel"):
+        super().__init__(parent)
+        self.var, self.command, self._disabled = variable, command, False
+        self.switch = tk.Label(self, bd=0, bg=MIDNIGHT, cursor="hand2", takefocus=0)
+        self.switch.pack(side="left", anchor="n", pady=(1, 0))
+        self.label = ttk.Label(self, text=text, style=style, cursor="hand2", justify="left",
+                               wraplength=wraplength or px(440))
+        self.label.pack(side="left", padx=(8, 0), anchor="w")
+        for w in (self.switch, self.label):
+            w.bind("<Button-1>", self._click)
+        self._trace = variable.trace_add("write", lambda *_: self._draw())
+        self.bind("<Destroy>", lambda _e: self._untrace(), add="+")
+        self._draw()
+
+    def _untrace(self):
+        try:
+            self.var.trace_remove("write", self._trace)
+        except tk.TclError:
+            pass
+
+    def _draw(self):
+        if not self.switch.winfo_exists():
+            return
+        state = ("on" if self.var.get() else "off") + ("_disabled" if self._disabled else "")
+        self.switch.configure(image=_switch_images()[state])
+
+    def _click(self, _e=None):
+        if self._disabled:
+            return
+        self.var.set(not self.var.get())
+        if self.command:
+            self.command()
+
+    def state(self, spec=None):
+        """ttk-style: toggle.state(["disabled"]) / (["!disabled"])."""
+        if spec:
+            for s_ in spec:
+                if s_ == "disabled":
+                    self._disabled = True
+                elif s_ == "!disabled":
+                    self._disabled = False
+            self.label.configure(foreground=MUTED if self._disabled else "")
+            self._draw()
+        return ("disabled",) if self._disabled else ()
+
+
 def theme_row(parent, main, reopen) -> ttk.Frame:
     """Radio buttons for the colour themes, each with a little swatch of its colours."""
     row = ttk.Frame(parent)
@@ -331,8 +407,11 @@ class MainWindow:
         self.sync_pct = ttk.Label(syncrow, text="0%", width=5, anchor="e", style="Small.TLabel")
         self.sync_pct.grid(row=0, column=2)
         self.v_outlines = tk.BooleanVar(value=self.cfg.show_outlines)
-        ttk.Checkbutton(side, text=f"Outlines: you ({brand.LIVE_WORD}) · loop ({brand.LOOP_WORD})   O", variable=self.v_outlines,
-                        command=lambda: self.e.request("outlines")).grid(sticky="w", pady=(6, 0))
+        Toggle(side, text=f"Outlines: you ({brand.LIVE_WORD}) · loop ({brand.LOOP_WORD})   O", variable=self.v_outlines,
+               command=lambda: self.e.request("outlines"), wraplength=px(290)).grid(sticky="w", pady=(8, 0))
+        self.v_badge = tk.BooleanVar(value=self.cfg.loop_badge)
+        Toggle(side, text="BRB badge in the meeting while the LOOP is on air", variable=self.v_badge,
+               command=lambda: self.e.request("badge"), wraplength=px(290)).grid(sticky="w", pady=(6, 0))
 
         # --- cut ---
         self.cut_btn = HoldButton(side, self.e)
@@ -607,6 +686,8 @@ class MainWindow:
                                ("Stitching..." if rec == State.PROCESSING else "Record loop (R)"))
         if self.v_outlines.get() != self.cfg.show_outlines:
             self.v_outlines.set(self.cfg.show_outlines)
+        if self.v_badge.get() != self.cfg.loop_badge:
+            self.v_badge.set(self.cfg.loop_badge)
         self._refresh_license()
         warn = e.lighting_warning
         self.light_lbl.configure(text=f"⚠ {warn}" if warn else "")
@@ -795,17 +876,16 @@ class MainWindow:
         self.root.after(50, self.root.destroy)
 
     def after_eula(self) -> None:
-        """What happens once the license agreement is accepted: the setup guide or the Mac permissions page."""
-        if not self.cfg.setup_done:
-            camera_ok = macos.obs_status()["ready"] if IS_MAC else self.e.tray_driver_installed()
-            if self.e.player is not None and camera_ok:
-                self.cfg.setup_done = True  # already set up with an earlier version
-                self.cfg.save(self.e.config_path)
-            else:
-                self.root.after(600, self.open_wizard)
-        elif IS_MAC and not self.cfg.mac_permissions_seen:
+        """Once the license agreement is accepted: the setup guide opens every time BRB opens (it walks through
+        webcam, loop and meeting each time; the camera step is left out once the camera is installed). Not when BRB
+        was started minimized at sign-in, and not when the guide was just reopened after a theme change."""
+        if self._start_minimized or (self._reopen and self._reopen[0] == "wizard"):
+            return
+        if IS_MAC and self.cfg.setup_done and not self.cfg.mac_permissions_seen:
             # set up with an earlier version: walk through the Mac permissions once
             self.root.after(800, lambda: self.open_wizard(page="permissions"))
+        else:
+            self.root.after(600, self.open_wizard)
 
 
 RECORD_TIPS = (
@@ -988,7 +1068,7 @@ class RecordTipsDialog:
         bottom = ttk.Frame(f)
         bottom.pack(fill="x")
         self.v_again = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bottom, text="Don't show this again", variable=self.v_again).pack(side="left")
+        Toggle(bottom, text="Don't show this again", variable=self.v_again).pack(side="left")
         ttk.Button(bottom, text="Start recording  (R)", style="Accent.TButton",
                    command=self.start).pack(side="right")
         ttk.Button(bottom, text="Not now", command=self.dismiss).pack(side="right", padx=8)
@@ -1216,12 +1296,12 @@ class SettingsWindow:
         ttk.Label(f, text="Privacy", style="Head.TLabel").grid(sticky="w", pady=(4, 2))
         self.v_mute = tk.BooleanVar(value=self.cfg.mute_mic_on_loop)
         self.v_hide = tk.BooleanVar(value=self.cfg.hide_from_screen_share)
-        ttk.Checkbutton(f, text="Mute my microphone while the LOOP is on air", variable=self.v_mute,
+        Toggle(f, text="Mute my microphone while the LOOP is on air", variable=self.v_mute,
                         command=self._changed).grid(sticky="w")
-        ttk.Checkbutton(f, text="Hide BRB's windows from screen sharing", variable=self.v_hide,
+        Toggle(f, text="Hide BRB's windows from screen sharing", variable=self.v_hide,
                         command=self._changed).grid(sticky="w")
         self.v_badge = tk.BooleanVar(value=self.cfg.loop_badge)
-        ttk.Checkbutton(f, text="Show a small BRB badge to the meeting while the LOOP is on air",
+        Toggle(f, text="Show a small BRB badge to the meeting while the LOOP is on air",
                         variable=self.v_badge, command=self._changed).grid(sticky="w")
         ttk.Label(f, text="Lets others see you've stepped away for a moment (bottom-right corner). "
                           "Use it if your organizer asks for it, or if you simply prefer it.",
@@ -1230,15 +1310,15 @@ class SettingsWindow:
         ttk.Label(f, text="Cuts & preview", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
         self.v_fade = tk.BooleanVar(value=self.cfg.crossfade_ms > 0)
         self.v_guides = tk.BooleanVar(value=self.cfg.show_guides)
-        ttk.Checkbutton(f, text="Soft 0.3 s crossfade on cuts (off = hard cut)", variable=self.v_fade,
+        Toggle(f, text="Soft 0.3 s crossfade on cuts (off = hard cut)", variable=self.v_fade,
                         command=self._changed).grid(sticky="w")
-        ttk.Checkbutton(f, text="Show alignment guides in the preview (G)", variable=self.v_guides,
+        Toggle(f, text="Show alignment guides in the preview (G)", variable=self.v_guides,
                         command=self._changed).grid(sticky="w")
         self.v_outlines = tk.BooleanVar(value=self.cfg.show_outlines)
-        ttk.Checkbutton(f, text=f"Show live ({brand.LIVE_WORD}) and loop ({brand.LOOP_WORD}) outlines (O)", variable=self.v_outlines,
+        Toggle(f, text=f"Show live ({brand.LIVE_WORD}) and loop ({brand.LOOP_WORD}) outlines (O)", variable=self.v_outlines,
                         command=self._changed).grid(sticky="w")
         self.v_tips = tk.BooleanVar(value=self.cfg.show_record_tips)
-        ttk.Checkbutton(f, text="Show recording tips before each recording", variable=self.v_tips,
+        Toggle(f, text="Show recording tips before each recording", variable=self.v_tips,
                         command=self._changed).grid(sticky="w")
         op = ttk.Frame(f)
         op.grid(sticky="ew", pady=(6, 0))
@@ -1285,7 +1365,7 @@ class SettingsWindow:
         ttk.Label(f, text="OBS Virtual Camera" if IS_MAC else "HappyHacks Virtual Camera",
                   style="Head.TLabel").grid(sticky="w", pady=(12, 2))
         self.v_startup = tk.BooleanVar(value=winutil.starts_with_windows())
-        self.startup_chk = ttk.Checkbutton(
+        self.startup_chk = Toggle(
             f, text=f"Start BRB (minimized) {WHEN_STARTS} - so your meeting app always gets a picture",
             variable=self.v_startup, command=self._startup_changed)
         self.startup_chk.grid(sticky="w")
@@ -1365,6 +1445,8 @@ class SettingsWindow:
         self.lic_lbl.configure(text=lic.summary() + (f"  ·  key {lic.key[-4:]}" if lic.key and lic.unlimited else ""))
         self.v_guides.set(self.cfg.show_guides)
         self.v_outlines.set(self.cfg.show_outlines)
+        if self.v_badge.get() != self.cfg.loop_badge:
+            self.v_badge.set(self.cfg.loop_badge)
         if IS_MAC:
             st = self.main.obs
             self.drv_lbl.configure(text=("OBS Virtual Camera ready ✓ - choose it in your meeting app" if st["ready"]
@@ -1488,6 +1570,8 @@ class Wizard:
         if IS_MAC:  # macOS privacy permissions get their own page, right after the OBS camera
             self.STEPS = ("welcome", "camera", "permissions") + tuple(
                 s for s in self.STEPS if s not in ("welcome", "camera"))
+        if self._camera_ready():   # nothing to do on the camera step: leave it out
+            self.STEPS = tuple(s for s in self.STEPS if s != "camera")
         self._perm_checked = 0.0
         self.win = tk.Toplevel(main.root)
         self.win.title("BRB setup")
@@ -1605,6 +1689,11 @@ class Wizard:
                        "Windows asks for permission once.")
             self._button("Install Virtual Camera", "install_driver")
         self._status()
+
+    def _camera_ready(self) -> bool:
+        if IS_MAC:   # asked directly: the window's own OBS check may not have run yet this soon after opening
+            return bool(macos.obs_status().get("ready"))
+        return self.e.tray_driver_current()
 
     def _camera_state(self, fresh: bool = True) -> str:
         """"current", "update" (an earlier version's camera) or "missing". Without `fresh`, checked at most once a
@@ -1754,7 +1843,7 @@ class Wizard:
                                         macos.open_input_monitoring_settings())).pack(anchor="w", pady=(2, 4))
         if winutil.startup_command() is not None:
             self._startup = tk.BooleanVar(value=winutil.starts_with_windows())
-            ttk.Checkbutton(self.body, text=f"Start BRB {WHEN_STARTS} (recommended - your meeting app then "
+            Toggle(self.body, text=f"Start BRB {WHEN_STARTS} (recommended - your meeting app then "
                             "always gets a picture)", variable=self._startup,
                             command=lambda: winutil.set_start_with_windows(self._startup.get())).pack(
                 anchor="w", pady=(6, 0))
