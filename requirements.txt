@@ -1,9 +1,9 @@
-opencv-contrib-python>=4.8,<5   # one OpenCV build for us and MediaPipe (contrib: guided filter)
-mediapipe>=0.10.14              # AI person segmentation
-numpy>=1.24
-pynput>=1.7; sys_platform != "darwin"      # global hotkeys (Mac uses a Quartz event tap instead)
-pystray>=0.19; sys_platform != "darwin"    # tray icon (Mac: Dock icon)
-pyobjc-framework-Quartz>=10; sys_platform == "darwin"       # Mac: global hotkeys
-pyobjc-framework-Cocoa>=10; sys_platform == "darwin"        # Mac: webcam names, camera permission, hide from sharing
-Pillow>=10
-certifi>=2024.2              # trusted certificates for the license server (bundled, not the system's)
+opencv-contrib-python>=5.0.0.93,<6   # one OpenCV build for us and MediaPipe (contrib: guided filter)
+mediapipe>=1.2.0              # AI person segmentation
+numpy>=2.5.4
+pynput>=1.8.2; sys_platform != "darwin"      # global hotkeys (Mac uses a Quartz event tap instead)
+pystray>=0.19.5; sys_platform != "darwin"    # tray icon (Mac: Dock icon)
+pyobjc-framework-Quartz>=13.0; sys_platform == "darwin"       # Mac: global hotkeys
+pyobjc-framework-Cocoa>=13.0; sys_platform == "darwin"        # Mac: webcam names, camera permission, hide from sharing
+Pillow>=13.0.0
+certifi>=2026.10.23              # trusted certificates for the license server (bundled, not the system's)
