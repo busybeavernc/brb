@@ -61,6 +61,35 @@ jobs:
       - name: Run tests
         run: python -m pytest -q tests
 
+  # Every push: compile BRB's Mac OBS-camera helper on a real Mac and make sure it loads and searches the cameras
+  # (no OBS on the build machine, so "not found" is the expected answer). Nothing is published.
+  mac-helper:
+    if: ${{ !(github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')) }}
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile (Intel and Apple Silicon)
+        run: |
+          for arch in x86_64 arm64; do
+            clang -dynamiclib -fobjc-arc -O2 -Wall -arch $arch -mmacosx-version-min=13.0 \
+              -framework Foundation -framework CoreMediaIO -framework CoreMedia -framework CoreVideo \
+              -o libbrbobscam-$arch.dylib driver/macos/obscam.m
+          done
+          lipo -info libbrbobscam-x86_64.dylib libbrbobscam-arm64.dylib
+      - name: Load and look for OBS Virtual Camera
+        run: |
+          python3 - <<'PY'
+          import ctypes
+          lib = ctypes.CDLL("./libbrbobscam-x86_64.dylib")
+          w, h, f = ctypes.c_int(), ctypes.c_int(), ctypes.c_uint32()
+          err = ctypes.create_string_buffer(200)
+          rc = lib.brb_obs_open(b"OBS Virtual Camera", ctypes.byref(w), ctypes.byref(h), ctypes.byref(f), err, 200)
+          print("brb_obs_open ->", rc, err.value.decode())
+          assert rc == 1 and err.value == b"not found", "expected: OBS camera not installed on the build machine"
+          lib.brb_obs_close()
+          print("helper loads and searches the cameras: OK")
+          PY
+
   windows:
     if: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')) }}
     runs-on: windows-latest
@@ -227,6 +256,14 @@ jobs:
           v="$base.$(( ${{ github.run_number }} + BUILD_OFFSET ))"
           echo "VERSION = \"$v\"" > doppleganger/_build.py
           echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Build the OBS camera helper
+        run: |
+          mkdir -p driver_build
+          clang -dynamiclib -fobjc-arc -O2 -Wall -arch ${{ matrix.arch }} -mmacosx-version-min=13.0 \
+            -framework Foundation -framework CoreMediaIO -framework CoreMedia -framework CoreVideo \
+            -install_name @rpath/libbrbobscam.dylib -o driver_build/libbrbobscam.dylib driver/macos/obscam.m
+          nm -gU driver_build/libbrbobscam.dylib | grep brb_obs_
 
       - name: Third-party notices
         run: python tools/third_party_notices.py THIRD-PARTY-NOTICES.txt

@@ -125,8 +125,8 @@ def selftest() -> int:
         p = s.probability(np.zeros((360, 640, 3), np.uint8))
         return f"ok {p.shape}"
     check("ai-segmentation", seg)
-    if sys.platform == "darwin":   # the Mac sends through OBS; Windows has its own camera
-        check("pyvirtualcam", lambda: __import__("pyvirtualcam").__version__)
+    if sys.platform == "darwin":   # the Mac sends through OBS with BRB's own helper library
+        check("obs-helper", lambda: (__import__("doppleganger.macobs", fromlist=["x"]).load(), "loaded")[1])
     check("cameras", lambda: vcamlib.list_cameras())
     check("device-id", lambda: __import__("doppleganger.device", fromlist=["x"]).device_id()[:12] + "...")
     check("certifi", lambda: __import__("certifi").where())

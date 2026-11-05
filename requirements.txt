@@ -1,7 +1,6 @@
 opencv-contrib-python>=4.8,<5   # one OpenCV build for us and MediaPipe (contrib: guided filter)
 mediapipe>=0.10.14              # AI person segmentation
 numpy>=1.24
-pyvirtualcam>=0.12; sys_platform == "darwin"   # Mac output via OBS (Windows has its own camera)
 pynput>=1.7; sys_platform != "darwin"      # global hotkeys (Mac uses a Quartz event tap instead)
 pystray>=0.19; sys_platform != "darwin"    # tray icon (Mac: Dock icon)
 pyobjc-framework-Quartz>=10; sys_platform == "darwin"       # Mac: global hotkeys

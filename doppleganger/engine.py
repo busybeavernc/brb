@@ -71,13 +71,11 @@ class Output:
         try:
             if backend == "doppleganger":
                 self.cam = vcamlib.DopplegangerCamera(self.cfg.width, self.cfg.height, self.cfg.fps)
+            elif macos.is_mac():
+                from . import macobs   # BRB's own helper: frames to OBS's camera extension
+                self.cam = macobs.ObsCamera(self.cfg.width, self.cfg.height, self.cfg.fps)
             else:
-                try:
-                    import pyvirtualcam
-                except ImportError:   # not in the Windows build: Windows uses the HappyHacks Virtual Camera
-                    raise RuntimeError("OBS output isn't included in this version - set output_camera to auto")
-                self.cam = pyvirtualcam.Camera(self.cfg.width, self.cfg.height, self.cfg.fps,
-                                               fmt=pyvirtualcam.PixelFormat.BGR, backend="obs")
+                raise RuntimeError("OBS output is only used on a Mac - set output_camera to auto")
             self.backend, self.device, self.error = backend, self.cam.device, ""
             log.info("Virtual camera connected: %s", self.device)
         except Exception as e:  # noqa: BLE001
