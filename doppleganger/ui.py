@@ -833,6 +833,7 @@ class ScrollArea(tk.Frame):
 
 EULA_VERSION = "1"   # bump when assets/EULA.md changes in a way people must accept again
 EULA_URL = "https://brb.happyhacks.io/eula"
+PRIVACY_URL = "https://brb.happyhacks.io/privacy"
 
 
 def eula_text() -> str:
@@ -880,6 +881,8 @@ class EulaDialog:
         row = ttk.Frame(f)
         row.pack(fill="x", pady=(12, 0))
         ttk.Button(row, text="Read it online", command=lambda: __import__("webbrowser").open(EULA_URL)).pack(side="left")
+        ttk.Button(row, text="Privacy Policy", command=lambda: __import__("webbrowser").open(PRIVACY_URL)).pack(
+            side="left", padx=8)
         ttk.Button(row, text="I Agree", style="Accent.TButton", command=self.accept).pack(side="right")
         ttk.Button(row, text="Decline", command=self.decline).pack(side="right", padx=8)
         center_on(self.win, main.root)
@@ -1159,6 +1162,8 @@ class SettingsWindow:
         self.lic_lbl.pack(side="left")
         ttk.Button(lr, text="License key...", command=main.open_license).pack(side="right")
         ttk.Button(lr, text="EULA", command=lambda: __import__("webbrowser").open(EULA_URL)).pack(side="right", padx=6)
+        ttk.Button(lr, text="Privacy Policy", command=lambda: __import__("webbrowser").open(PRIVACY_URL)).pack(
+            side="right")
 
         ttk.Label(f, text="Privacy", style="Head.TLabel").grid(sticky="w", pady=(4, 2))
         self.v_mute = tk.BooleanVar(value=self.cfg.mute_mic_on_loop)

@@ -55,7 +55,7 @@ Source: "..\dist\{#MyAppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "doppleganger-publisher.cer"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{userprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Comment: "A seamless switch."
+Name: "{userprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Comment: "Need a moment? Be right back."
 Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Tasks: desktopicon
 
 [Run]
