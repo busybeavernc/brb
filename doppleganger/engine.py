@@ -334,6 +334,10 @@ class Engine:
     def tray_driver_installed(self) -> bool:
         return vcamlib.installed_version() is not None
 
+    def tray_driver_current(self) -> bool:
+        """Installed, and the version this BRB ships (not an earlier version's camera)."""
+        return vcamlib.installed_version() == vcamlib.DRIVER_VERSION
+
     def tray_driver_available(self) -> bool:
         return vcamlib.bundled()
 

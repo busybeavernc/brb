@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+import time
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
@@ -1586,10 +1587,36 @@ class Wizard:
         if IS_MAC:
             return self._page_camera_mac()
         self._title("1  Add the HappyHacks Virtual Camera")
-        self._para("This adds a camera named \"HappyHacks Virtual Camera\" that meeting apps and browsers can use. "
-                   "Windows asks for permission once.")
-        self._button("Install camera", "install_driver")
+        self._cam_state = state = self._camera_state()
+        if state == "current":
+            ttk.Label(self.body, text="✓ The HappyHacks Virtual Camera is already installed on this computer.",
+                      foreground=OK_TEXT, wraplength=px(430), justify="left").pack(anchor="w", pady=(0, 9))
+            self._para("Nothing to do here: click Next to skip this step.")
+            ttk.Label(self.body, text="Only if your meeting app doesn't list the camera:", style="Small.TLabel").pack(
+                anchor="w", pady=(14, 4))
+            ttk.Button(self.body, text="Reinstall Virtual Camera",
+                       command=lambda: self.e.request("install_driver")).pack(anchor="w")
+        elif state == "update":
+            self._para("This version of BRB comes with an update to the HappyHacks Virtual Camera. "
+                       "Windows asks for permission once.")
+            self._button("Update Virtual Camera", "install_driver")
+        else:
+            self._para("This adds a camera named \"HappyHacks Virtual Camera\" that meeting apps and browsers can use. "
+                       "Windows asks for permission once.")
+            self._button("Install Virtual Camera", "install_driver")
         self._status()
+
+    def _camera_state(self, fresh: bool = True) -> str:
+        """"current", "update" (an earlier version's camera) or "missing". Without `fresh`, checked at most once a
+        second (it reads the registry; the wizard refreshes 30 times a second)."""
+        now = time.monotonic()
+        if fresh or now - getattr(self, "_cam_state_at", 0.0) > 1.0:
+            self._cam_state_at = now
+            if self.e.tray_driver_current():
+                self._cam_state_now = "current"
+            else:
+                self._cam_state_now = "update" if self.e.tray_driver_installed() else "missing"
+        return self._cam_state_now
 
     def _page_camera_mac(self):
         self._title("1  Set up the OBS camera")
@@ -1687,6 +1714,7 @@ class Wizard:
         var = tk.StringVar(value=self.e.camera_name)
         box = ttk.Combobox(self.body, textvariable=var, state="readonly", values=self.e.tray_cameras(), width=42)
         box.pack(anchor="w")
+        self._webcam_box, self._webcam_var, self._webcam_seq = box, var, self.e.cameras_seq
         box.bind("<<ComboboxSelected>>", lambda _e: self.e.request(f"camera:{var.get()}"))
 
     def _page_calibrate(self):
@@ -1732,10 +1760,22 @@ class Wizard:
                 anchor="w", pady=(6, 0))
 
     def refresh(self):
-        if not self.alive or self.status is None:
+        if not self.alive:
             return
         e = self.e
         page = self.STEPS[self.step]
+        if page == "webcam":   # a webcam plugged in or removed while this step is showing
+            if self._webcam_seq != e.cameras_seq:
+                self._webcam_seq = e.cameras_seq
+                self._webcam_box["values"] = e.tray_cameras()
+            if self._webcam_var.get() != e.camera_name:
+                self._webcam_var.set(e.camera_name)
+            return
+        if page == "camera" and not IS_MAC and self._camera_state(fresh=False) != self._cam_state:
+            self.render()   # just installed (or removed): show the matching page
+            return
+        if self.status is None:
+            return
         txt, col = "", CLOUD
         if page == "permissions":
             self._refresh_permissions()
@@ -1749,10 +1789,12 @@ class Wizard:
             else:
                 txt, col = st["message"], WARN_TEXT
         elif page == "camera":
-            if e.tray_driver_installed():
-                txt, col = "✓ Installed - you can choose \"HappyHacks Virtual Camera\" in your meeting app.", OK_TEXT
+            if self._cam_state == "current":
+                txt = ""   # the page itself says it's installed
             elif not e.tray_driver_available():
                 txt, col = "The camera comes with the installed app. (From source, OBS Virtual Camera is used.)", MUTED
+            elif self._cam_state == "update":
+                txt = e.message or "An earlier version of the camera is installed; it keeps working until you update."
             else:
                 txt = e.message or "Not installed yet."
         elif page == "calibrate":
