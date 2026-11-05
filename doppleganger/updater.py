@@ -150,14 +150,14 @@ def apply_and_restart(new_exe: str) -> None:
     """Swap in the new build after this process exits, relaunch it, and exit now."""
     if sys.platform == "darwin":
         from . import macos
-        script = os.path.join(tempfile.gettempdir(), "doppleganger_update.sh")
+        script = os.path.join(tempfile.gettempdir(), "brb_update.sh")
         with open(script, "w", encoding="utf-8") as f:
             f.write(mac_update_script(new_exe, macos.app_bundle(), os.getpid()))
         os.chmod(script, 0o700)   # only this user
         subprocess.Popen(["/bin/sh", script], start_new_session=True, close_fds=True, env=clean_environment())
         os._exit(0)
     exe = sys.executable
-    script = os.path.join(tempfile.gettempdir(), "doppleganger_update.bat")
+    script = os.path.join(tempfile.gettempdir(), "brb_update.bat")
     with open(script, "w", encoding="utf-8") as f:
         f.write(f"""@echo off
 set tries=0

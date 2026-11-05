@@ -1,8 +1,10 @@
-"""The "Doppleganger" camera (Windows) and the list of real cameras.
+"""The HappyHacks Virtual Camera (Windows) and the list of real cameras.
 
 - The camera itself is a DirectShow filter DLL (built from softcam on CI, see driver/).
-  It's installed once into %ProgramData%\\Doppleganger and registered with regsvr32,
+  It's installed once into %ProgramData%\\BRB and registered with regsvr32,
   which needs administrator rights (one Windows permission prompt).
+  Earlier versions used %ProgramData%\\Doppleganger and doppleganger_cam*.dll; installing this version's camera
+  re-registers the same camera (same CLSID) from the new folder and removes the old one.
 - The same DLL exports the sender API (scCreateCamera / scSendFrame), which the app
   calls through ctypes to put frames on the camera.
 """
@@ -19,9 +21,12 @@ import numpy as np
 
 CAMERA_NAME = "HappyHacks Virtual Camera"   # what Zoom/Teams list (renamed from "Doppleganger" in driver 3)
 CLSID = "{548A881E-7657-4231-8FEA-A9877D9743C9}"
-DRIVER_VERSION = "3"  # bump when the driver DLL changes, so installed copies get refreshed
-# 2: neutral placeholder when the app is not running (fixes a Zoom crash); 3: renamed "HappyHacks Virtual Camera"
-DLL64, DLL32 = "doppleganger_cam64.dll", "doppleganger_cam32.dll"
+DRIVER_VERSION = "4"  # bump when the driver DLL changes, so installed copies get refreshed
+# 2: neutral placeholder when the app is not running (fixes a Zoom crash); 3: renamed "HappyHacks Virtual Camera";
+# 4: moved to %ProgramData%\BRB as brb_cam*.dll
+DLL64, DLL32 = "brb_cam64.dll", "brb_cam32.dll"
+INSTALL_FOLDER, OLD_INSTALL_FOLDER = "BRB", "Doppleganger"
+OLD_DLL64, OLD_DLL32 = "doppleganger_cam64.dll", "doppleganger_cam32.dll"
 VIRTUAL_CAMERA_HINTS = ("doppleganger", "happyhacks", "obs virtual", "virtual cam", "unity video capture",
                         "softcam", "xsplit", "snap camera", "manycam")
 
@@ -41,7 +46,11 @@ def bundle_dir() -> str:
 
 
 def install_dir() -> str:
-    return os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"), "Doppleganger")   # kept from before the rename
+    return os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"), INSTALL_FOLDER)
+
+
+def old_install_dir() -> str:
+    return os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"), OLD_INSTALL_FOLDER)
 
 
 def bundled() -> bool:
@@ -60,6 +69,8 @@ def installed_version() -> str | None:
         return None
     if not os.path.exists(path):
         return None
+    if os.path.normcase(os.path.dirname(path)) != os.path.normcase(install_dir()):
+        return "0"   # registered from an earlier version's folder: install again from the new one
     try:
         with open(os.path.join(install_dir(), "version.txt"), encoding="utf-8", errors="ignore") as f:
             v = f.read().strip()
@@ -86,7 +97,7 @@ def elevated_script(body: str, marker: str) -> str:
 
 def _run_elevated_script(body: str, timeout: float = 120.0) -> tuple[bool, str]:
     """Run a batch script as administrator (Windows shows its permission prompt) and wait for it."""
-    tmp = tempfile.mkdtemp(prefix="doppleganger_")
+    tmp = tempfile.mkdtemp(prefix="brb_")
     script, marker = os.path.join(tmp, "run.bat"), os.path.join(tmp, "result.txt")
     with open(script, "w", encoding="utf-8") as f:
         f.write(elevated_script(body, marker))
@@ -125,16 +136,35 @@ def install() -> tuple[bool, str]:
     if os.path.exists(os.path.join(src, DLL32)):
         lines.append(f'"{sysroot}\\SysWOW64\\regsvr32.exe" /s "{dst}\\{DLL32}"')
     lines.append(f'(echo {DRIVER_VERSION})> "{dst}\\version.txt"')
+    lines += _remove_old_folder_lines()
     lines.append("exit /b 0")
     return _run_elevated_script("\r\n".join(lines))
+
+
+def _remove_old_folder_lines() -> list[str]:
+    """Delete an earlier version's camera folder. Its DLLs aren't unregistered: the camera is the same COM class,
+    now registered from the new folder, and unregistering would remove it. A DLL a meeting app still has open
+    can't be deleted, so it's renamed and the next install tries again."""
+    old = old_install_dir()
+    return [f'if exist "{old}\\{n}" move /y "{old}\\{n}" "{old}\\{n}.{int(time.time())}.old" >nul 2>nul'
+            for n in (OLD_DLL64, OLD_DLL32)] + [
+            f'del /q "{old}\\*.old" "{old}\\version.txt" "{old}\\SOFTCAM-LICENSE.txt" 2>nul',
+            f'rmdir "{old}" 2>nul']
 
 
 def uninstall() -> tuple[bool, str]:
     dst = install_dir()
     sysroot = os.environ.get("SystemRoot", r"C:\Windows")
-    lines = [f'"{sysroot}\\System32\\regsvr32.exe" /s /u "{dst}\\{DLL64}"',
+    old = old_install_dir()
+    lines = [f'if exist "{dst}\\{DLL64}" "{sysroot}\\System32\\regsvr32.exe" /s /u "{dst}\\{DLL64}"',
              f'if exist "{dst}\\{DLL32}" "{sysroot}\\SysWOW64\\regsvr32.exe" /s /u "{dst}\\{DLL32}"',
-             f'del /q "{dst}\\*.dll" "{dst}\\*.old" "{dst}\\version.txt" 2>nul',
+             # a camera still registered from an earlier version's folder
+             f'if exist "{old}\\{OLD_DLL64}" "{sysroot}\\System32\\regsvr32.exe" /s /u "{old}\\{OLD_DLL64}"',
+             f'if exist "{old}\\{OLD_DLL32}" "{sysroot}\\SysWOW64\\regsvr32.exe" /s /u "{old}\\{OLD_DLL32}"',
+             f'del /q "{dst}\\*.dll" "{dst}\\*.old" "{dst}\\version.txt" "{dst}\\SOFTCAM-LICENSE.txt" 2>nul',
+             f'rmdir "{dst}" 2>nul',
+             f'del /q "{old}\\*.dll" "{old}\\*.old" "{old}\\version.txt" "{old}\\SOFTCAM-LICENSE.txt" 2>nul',
+             f'rmdir "{old}" 2>nul',
              "exit /b 0"]
     return _run_elevated_script("\r\n".join(lines))
 

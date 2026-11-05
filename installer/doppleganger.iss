@@ -1,9 +1,9 @@
 ; Doppleganger installer (Inno Setup 6). Built on CI:  iscc /DMyAppVersion=0.1.42 installer\doppleganger.iss
 ;
-; - Per-user install (no admin) to %LOCALAPPDATA%\Programs\Doppleganger, so the app can update itself.
+; - Per-user install (no admin) to %LOCALAPPDATA%\Programs\BRB, so the app can update itself.
 ; - Start-menu shortcut (+ optional desktop shortcut) and an entry in Settings > Apps.
 ; - Uninstalling removes the Doppleganger camera too. Your loops and settings in
-;   %APPDATA%\Doppleganger are kept, in case you reinstall.
+;   %APPDATA%\BRB are kept, in case you reinstall.
 ; - Optional: trust the Doppleganger publisher certificate on this PC (self-signed),
 ;   so Windows shows "Doppleganger" as a known publisher for this app.
 

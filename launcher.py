@@ -39,7 +39,7 @@ if __name__ == "__main__":
         main()
     except Exception as e:  # noqa: BLE001
         splash.close()
-        with open("doppleganger-error.log", "w", encoding="utf-8") as f:
+        with open("brb-error.log", "w", encoding="utf-8") as f:
             traceback.print_exc(file=f)
-        _error_box(f"BRB stopped:\n\n{e}\n\nDetails were saved to:\n{os.path.abspath('doppleganger-error.log')}")
+        _error_box(f"BRB stopped:\n\n{e}\n\nDetails were saved to:\n{os.path.abspath('brb-error.log')}")
         sys.exit(1)

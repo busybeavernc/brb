@@ -29,7 +29,7 @@ def main() -> None:
         os._exit(rc)  # skip interpreter teardown (MediaPipe complains noisily during it)
 
     helper = args.install_camera or args.remove_camera   # run by the installer: keep the app's own log intact
-    logging.basicConfig(filename="doppleganger-setup.log" if helper else "doppleganger.log", filemode="w", level=logging.INFO,
+    logging.basicConfig(filename="brb-setup.log" if helper else "brb.log", filemode="w", level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     log.info("BRB v%s starting in %s", updater.current_version(), os.getcwd())
 

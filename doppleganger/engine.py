@@ -59,7 +59,9 @@ class Output:
 
     def _pick_backend(self) -> str:
         choice = self.cfg.output_camera
-        if choice in ("doppleganger", "obs"):
+        if choice in ("brb", "doppleganger"):   # "doppleganger": the setting's value in earlier versions
+            return "doppleganger"
+        if choice == "obs":
             return choice
         # auto: Windows always uses our own HappyHacks Virtual Camera (installed by the app/installer), never OBS;
         # a Mac uses OBS Virtual Camera.

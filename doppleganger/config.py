@@ -36,7 +36,7 @@ class Config:
     view_hotkey: str = "<f10>"          # global: switch between the full window and the Mini Bar
 
     # Output camera: "auto" = Windows: our HappyHacks Virtual Camera; Mac: OBS Virtual Camera
-    output_camera: str = "auto"         # auto | doppleganger | obs
+    output_camera: str = "auto"         # auto | brb | obs  ("doppleganger" = brb, from earlier versions)
     driver_prompted: bool = False       # (old) asked once whether to install the camera
     driver_auto_install: str = ""        # driver version the app last installed by itself (installs each new one once)
 

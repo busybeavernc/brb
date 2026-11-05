@@ -1,0 +1,48 @@
+"""Earlier versions kept data in a "Doppleganger" folder and the camera in %ProgramData%\\Doppleganger."""
+import os
+from unittest import mock
+
+from doppleganger import paths, vcam
+
+
+def test_old_data_folder_is_renamed(tmp_path):
+    old, new = tmp_path / "Doppleganger", tmp_path / "BRB"
+    (old / "loops").mkdir(parents=True)
+    (old / "loops" / "loop1.mp4").write_bytes(b"x")
+    (old / "config.json").write_text("{}")
+    (old / "doppleganger.log").write_text("old run")
+    assert paths.move_old_folder(str(old), str(new)) == str(new)
+    assert not old.exists()
+    assert (new / "loops" / "loop1.mp4").read_bytes() == b"x" and (new / "config.json").exists()
+    assert not (new / "doppleganger.log").exists()
+
+
+def test_new_folder_wins_and_old_is_left_alone(tmp_path):
+    old, new = tmp_path / "Doppleganger", tmp_path / "BRB"
+    old.mkdir(); new.mkdir()
+    assert paths.move_old_folder(str(old), str(new)) == str(new)
+    assert old.exists()
+
+
+def test_no_old_folder(tmp_path):
+    assert paths.move_old_folder(str(tmp_path / "Doppleganger"), str(tmp_path / "BRB")) == str(tmp_path / "BRB")
+
+
+def test_old_folder_used_if_it_cannot_be_moved(tmp_path):
+    old, new = tmp_path / "Doppleganger", tmp_path / "BRB"
+    old.mkdir()
+    with mock.patch("os.rename", side_effect=PermissionError("in use")):
+        assert paths.move_old_folder(str(old), str(new)) == str(old)
+
+
+def test_camera_folders_and_names():
+    with mock.patch.dict(os.environ, {"ProgramData": r"C:\ProgramData"}):
+        assert vcam.install_dir().endswith("BRB") and vcam.old_install_dir().endswith("Doppleganger")
+    assert vcam.DLL64 == "brb_cam64.dll" and vcam.DLL32 == "brb_cam32.dll"
+
+
+def test_install_script_cleans_up_old_folder_without_unregistering():
+    lines = vcam._remove_old_folder_lines()
+    text = "\n".join(lines)
+    assert "doppleganger_cam64.dll" in text and "rmdir" in text
+    assert "regsvr32" not in text   # same CLSID: unregistering the old DLL would remove the new camera
