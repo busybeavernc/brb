@@ -16,7 +16,7 @@ from tkinter import messagebox, simpledialog, ttk
 import cv2
 from PIL import Image, ImageTk
 
-from . import brand, library, macos, updater, winutil
+from . import brand, guides, library, macos, updater, winutil
 from .brand import (AMBER, AQUA, BAD_TEXT, BORDER, CLOUD, DANGER, INK, IVORY, MIDNIGHT, MUTED, OK_TEXT, SURFACE, SURFACE_HI,
                     TEAL, TEAL_DARK, VIOLET, VIOLET_DARK, WARN_TEXT)
 from .cutcontrol import SYNC_THRESHOLD
@@ -358,6 +358,15 @@ class MainWindow:
         self.preview = tk.Label(r, bg=MIDNIGHT, bd=0, highlightthickness=0)
         self.preview.grid(row=1, column=0, sticky="nsew", padx=(14, 0), pady=14)
         self.preview.bind("<Configure>", self._on_preview_resize)
+        # the watermark: drag it to move it, scroll over it to resize it
+        self._badge_drag = None
+        self.preview.bind("<ButtonPress-1>", self._badge_press)
+        self.preview.bind("<B1-Motion>", self._badge_move)
+        self.preview.bind("<ButtonRelease-1>", self._badge_release)
+        self.preview.bind("<Motion>", self._badge_hover)
+        self.preview.bind("<MouseWheel>", lambda ev: self._badge_wheel(ev, 1 if ev.delta > 0 else -1))
+        self.preview.bind("<Button-4>", lambda ev: self._badge_wheel(ev, 1))
+        self.preview.bind("<Button-5>", lambda ev: self._badge_wheel(ev, -1))
 
         # the side panel scrolls when the window is too short for it (a scroll bar appears only then)
         holder = tk.Frame(r, bg=MIDNIGHT)
@@ -617,6 +626,53 @@ class MainWindow:
             self.tree.insert("", "end", iid=li.path, text=label, image=self._thumbs.get(li.path, ""))
             if active:
                 self.tree.selection_set(li.path)
+
+    # ---------- the watermark in the preview ----------
+    def _preview_point(self, ev) -> tuple[float, float] | None:
+        """Mouse position in preview-picture pixels (the picture sits centred in its label)."""
+        pw, ph = self.e.preview_size
+        lw, lh = self.preview.winfo_width(), self.preview.winfo_height()
+        return ev.x - (lw - pw) / 2, ev.y - (lh - ph) / 2
+
+    def _on_badge(self, ev) -> bool:
+        r = self.e.badge_preview_rect
+        if not (self.cfg.loop_badge and r):
+            return False
+        x, y = self._preview_point(ev)
+        return r[0] - 4 <= x <= r[2] + 4 and r[1] - 4 <= y <= r[3] + 4
+
+    def _badge_hover(self, ev) -> None:
+        want = "fleur" if (self._badge_drag or self._on_badge(ev)) else ""
+        if str(self.preview.cget("cursor")) != want:
+            self.preview.configure(cursor=want)
+
+    def _badge_press(self, ev) -> None:
+        if self._on_badge(ev):
+            x, y = self._preview_point(ev)
+            r = self.e.badge_preview_rect
+            self._badge_drag = (x - (r[0] + r[2]) / 2, y - (r[1] + r[3]) / 2)   # where on the badge you grabbed it
+
+    def _badge_move(self, ev) -> None:
+        if not self._badge_drag:
+            return
+        pw, ph = self.e.preview_size
+        x, y = self._preview_point(ev)
+        cx = min(1.0, max(0.0, (x - self._badge_drag[0]) / pw))
+        cy = min(1.0, max(0.0, (y - self._badge_drag[1]) / ph))
+        self.cfg.badge_x = round(1.0 - cx if self.cfg.mirror_preview else cx, 4)   # stored as the meeting sees it
+        self.cfg.badge_y = round(cy, 4)
+
+    def _badge_release(self, _ev) -> None:
+        if self._badge_drag:
+            self._badge_drag = None
+            self.cfg.save(self.e.config_path)
+
+    def _badge_wheel(self, ev, direction: int) -> str | None:
+        if not self._on_badge(ev):
+            return None
+        self.cfg.badge_size = round(min(guides.BADGE_MAX, max(guides.BADGE_MIN, self.cfg.badge_size + 0.01 * direction)), 3)
+        self.cfg.save(self.e.config_path)
+        return "break"
 
     # ---------- refresh loop ----------
     def _on_preview_resize(self, ev) -> None:
@@ -1300,12 +1356,29 @@ class SettingsWindow:
                         command=self._changed).grid(sticky="w")
         Toggle(f, text="Hide BRB's windows from screen sharing", variable=self.v_hide,
                         command=self._changed).grid(sticky="w")
+
+        ttk.Label(f, text="Watermark", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
         self.v_badge = tk.BooleanVar(value=self.cfg.loop_badge)
-        Toggle(f, text="Show a small BRB badge to the meeting while the LOOP is on air",
+        Toggle(f, text="Show the BRB watermark to the meeting while the LOOP is on air",
                         variable=self.v_badge, command=self._changed).grid(sticky="w")
-        ttk.Label(f, text="Lets others see you've stepped away for a moment (bottom-right corner). "
-                          "Use it if your organizer asks for it, or if you simply prefer it.",
-                  style="Small.TLabel", wraplength=px(420), justify="left").grid(sticky="w", padx=(24, 0))
+        ttk.Label(f, text="Lets others see you've stepped away for a moment. Use it if your organizer asks for it, "
+                          "or if you simply prefer it.\nDrag it in the preview to move it, and scroll over it to "
+                          "resize it. Keep it on you (your chest, say): meeting apps' background blur and virtual "
+                          "backgrounds hide anything that isn't you.",
+                  style="Small.TLabel", wraplength=px(420), justify="left").grid(sticky="w", padx=(44, 0))
+        bs = ttk.Frame(f)
+        bs.grid(sticky="ew", pady=(6, 0), padx=(44, 0))
+        ttk.Label(bs, text="Size").pack(side="left")
+        self.v_badge_size = tk.DoubleVar(value=self.cfg.badge_size)
+        ttk.Scale(bs, from_=guides.BADGE_MIN, to=guides.BADGE_MAX, variable=self.v_badge_size, length=160,
+                  command=lambda _v: self._badge_changed()).pack(side="left", padx=8)
+        ttk.Button(bs, text="Reset position and size", command=self._badge_reset).pack(side="left", padx=(8, 0))
+        self.v_badge_flip = tk.BooleanVar(value=self.cfg.badge_flip)
+        Toggle(f, text="Flip horizontally", variable=self.v_badge_flip,
+               command=self._badge_changed).grid(sticky="w", padx=(44, 0), pady=(6, 0))
+        ttk.Label(f, text="For when it reads backwards. Note: Zoom and some other apps mirror only your own view of "
+                          "yourself; everyone else sees the watermark the right way round unless it's flipped.",
+                  style="Small.TLabel", wraplength=px(420), justify="left").grid(sticky="w", padx=(88, 0))
 
         ttk.Label(f, text="Cuts & preview", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
         self.v_fade = tk.BooleanVar(value=self.cfg.crossfade_ms > 0)
@@ -1393,6 +1466,16 @@ class SettingsWindow:
         center_on(self.win, main.root)
         self.win.after(150, main.apply_capture_setting)
 
+    def _badge_changed(self) -> None:
+        self.cfg.badge_size = round(float(self.v_badge_size.get()), 3)
+        self.cfg.badge_flip = bool(self.v_badge_flip.get())
+        self.cfg.save(self.e.config_path)
+
+    def _badge_reset(self) -> None:
+        self.cfg.badge_x, self.cfg.badge_y, self.cfg.badge_size = guides.BADGE_X, guides.BADGE_Y, guides.BADGE_SIZE
+        self.v_badge_size.set(guides.BADGE_SIZE)
+        self.cfg.save(self.e.config_path)
+
     def _changed(self) -> None:
         c = self.cfg
         mute_changed = c.mute_mic_on_loop != self.v_mute.get()
@@ -1447,6 +1530,8 @@ class SettingsWindow:
         self.v_outlines.set(self.cfg.show_outlines)
         if self.v_badge.get() != self.cfg.loop_badge:
             self.v_badge.set(self.cfg.loop_badge)
+        if abs(self.v_badge_size.get() - self.cfg.badge_size) > 0.004:   # resized by scrolling in the preview
+            self.v_badge_size.set(self.cfg.badge_size)
         if IS_MAC:
             st = self.main.obs
             self.drv_lbl.configure(text=("OBS Virtual Camera ready ✓ - choose it in your meeting app" if st["ready"]

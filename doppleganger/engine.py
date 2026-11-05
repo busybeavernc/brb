@@ -226,6 +226,7 @@ class Engine:
         self.tips_pending = False        # recording tips are showing; Start begins the recording
         self.ui_attached = False         # a window is open that can show the tips
         self.preview_size = (960, 540)            # set by the window
+        self.badge_preview_rect = None            # where the watermark is in the preview (for dragging it)
         self.preview_rgb: np.ndarray | None = None
         self.library_version = 0                  # bumps when loops change, so the window refreshes
         self.running = False
@@ -880,7 +881,7 @@ class Engine:
                 loop_frame = player.frame_for_output() if (self.loop_running and player is not None) else None
                 frame = self._compose(live, loop_frame)
                 if self.cfg.loop_badge and self.mode == "loop":
-                    frame = guides.stamp_badge(frame)   # what the meeting sees: a small BRB badge, bottom right
+                    frame = self.stamp_badge(frame)   # what the meeting sees
                 self.output.send(frame)
             except Exception:  # noqa: BLE001 - keep sending; one bad frame must not stop the meeting's picture
                 log.exception("meeting output")
@@ -891,6 +892,10 @@ class Engine:
                 time.sleep(delay)
             else:
                 next_t = time.monotonic()   # fell behind (the computer was busy): carry on from now
+
+    def stamp_badge(self, frame: np.ndarray) -> np.ndarray:
+        c = self.cfg
+        return guides.stamp_badge(frame, c.badge_x, c.badge_y, c.badge_size, c.badge_flip)
 
     def _compose(self, live: np.ndarray, loop_frame: np.ndarray | None, fade: bool = True) -> np.ndarray:
         cur = loop_frame if (self.mode == "loop" and loop_frame is not None) else live
@@ -991,8 +996,15 @@ class Engine:
         if self.camera_lost:
             guides.banner(prev, "Webcam disconnected - plug it back in, or choose another under Webcam",
                           brand.CV_DANGER)
-        if cfg.loop_badge and self.mode == "loop" and base is out:
-            prev = guides.stamp_badge(prev)   # drawn after mirroring, so it reads (and sits) as the meeting sees it
+        self.badge_preview_rect = None
+        if cfg.loop_badge and base is out:
+            # Where the meeting will see it, on the same part of you in this (maybe mirrored) preview, reading as
+            # the meeting sees it. Faint while LIVE, so you can see and drag it into place before stepping away.
+            cx = 1.0 - cfg.badge_x if cfg.mirror_preview else cfg.badge_x
+            ph, pw = prev.shape[:2]
+            prev = guides.stamp_badge(prev, cx, cfg.badge_y, cfg.badge_size, cfg.badge_flip,
+                                      opacity=1.0 if self.mode == "loop" else 0.5)
+            self.badge_preview_rect = guides.badge_rect(pw, ph, cx, cfg.badge_y, cfg.badge_size)
         self._draw_on_air(prev)
         left = self.lic.remaining() if self.mode == "loop" else None
         if left is not None and left <= 30:

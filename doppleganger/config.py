@@ -50,7 +50,11 @@ class Config:
     # Privacy
     mute_mic_on_loop: bool = True       # silence: mute the PC's microphones while the LOOP is on air
     theme: str = "ivory"                # window colours: "ivory" (default) or "slate" (Settings > Appearance)
-    loop_badge: bool = False            # a small BRB badge (bottom right) in what the meeting sees while the LOOP is on air
+    loop_badge: bool = False            # the BRB watermark in what the meeting sees while the LOOP is on air
+    badge_x: float = 0.5                # its centre, as fractions of the picture (default: low and centred, on
+    badge_y: float = 0.86               # your chest, so meeting apps' background effects keep it)
+    badge_size: float = 0.16            # its width, as a fraction of the picture's
+    badge_flip: bool = False            # mirrored left-right (reads correctly in a mirrored view)
     hide_from_screen_share: bool = True # Doppleganger's windows are invisible to screen sharing
 
     # Window
