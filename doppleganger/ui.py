@@ -879,6 +879,26 @@ class ScrollArea(tk.Frame):
 EULA_VERSION = "1"   # bump when assets/EULA.md changes in a way people must accept again
 EULA_URL = "https://brb.happyhacks.io/eula"
 PRIVACY_URL = "https://brb.happyhacks.io/privacy"
+IT_URL = "https://brb.happyhacks.io/it"
+
+
+def work_computer_row(parent, root, text: str) -> ttk.Frame:
+    """"Using a work computer?": open the page for IT teams, or copy its link for a software request."""
+    box = ttk.Frame(parent)
+    ttk.Label(box, text=text, style="Small.TLabel", wraplength=px(430), justify="left").pack(anchor="w")
+    row = ttk.Frame(box)
+    row.pack(anchor="w", pady=(4, 0))
+    ttk.Button(row, text="Page for IT", command=lambda: __import__("webbrowser").open(IT_URL)).pack(side="left")
+    copy = ttk.Button(row, text="Copy link")
+
+    def do_copy():
+        root.clipboard_clear()
+        root.clipboard_append(IT_URL)
+        copy.configure(text="Copied!")
+        root.after(1500, lambda: copy.winfo_exists() and copy.configure(text="Copy link"))
+    copy.configure(command=do_copy)
+    copy.pack(side="left", padx=6)
+    return box
 
 
 def eula_text() -> str:
@@ -1496,8 +1516,8 @@ class Wizard:
         self.alive = True
         self.win.protocol("WM_DELETE_WINDOW", self.close)
         self.step = 0
-        self._logo = _photo(brand.asset("logo_dark.png"), 330)
-        self.body = ttk.Frame(self.win, padding=24, width=px(480), height=px(520 if IS_MAC else 420))
+        self._logo = _photo(brand.asset("logo_dark.png"), 250)
+        self.body = ttk.Frame(self.win, padding=24, width=px(480), height=px(560 if IS_MAC else 480))
         self.body.pack(fill="both", expand=True)
         self.body.pack_propagate(False)
         nav = ttk.Frame(self.win, padding=(24, 0, 24, 18))
@@ -1572,7 +1592,7 @@ class Wizard:
         self.refresh()
 
     def _page_welcome(self):
-        tk.Label(self.body, image=self._logo, bg=MIDNIGHT).pack(anchor="w", pady=(4, 18))
+        tk.Label(self.body, image=self._logo, bg=MIDNIGHT).pack(anchor="w", pady=(0, 12))
         self._para("BRB records a short, seamless loop of you, then lets you switch between "
                    "that loop and your live webcam during a meeting, so you can step away for a moment "
                    "(a restroom break, a coffee refill) without your camera going dark and distracting everyone.")
@@ -1581,6 +1601,9 @@ class Wizard:
         ttk.Label(self.body, text="Pick a look for BRB (you can change it any time in Settings):",
                   style="Small.TLabel").pack(anchor="w", pady=(10, 4))
         theme_row(self.body, self.main, lambda: ("wizard", self.STEPS[self.step])).pack(anchor="w")
+        work_computer_row(self.body, self.win, "Using a work computer? Your IT team may need to approve BRB first: "
+                          "send them our page for IT.").pack(
+            anchor="w", pady=(14, 0))
 
     def _page_camera(self):
         if IS_MAC:
@@ -1590,6 +1613,8 @@ class Wizard:
                    "Windows asks for permission once.")
         self._button("Install camera", "install_driver")
         self._status()
+        work_computer_row(self.body, self.win, "Can't approve the Windows prompt on a work computer? Your IT team can "
+                          "install the camera for you; send them our page for IT.").pack(anchor="w", pady=(16, 0))
 
     def _page_camera_mac(self):
         self._title("1  Set up the OBS camera")
