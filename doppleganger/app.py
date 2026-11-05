@@ -35,27 +35,10 @@ def main() -> None:
 
     if args.minimized:
         splash.close()  # started at sign-in: stay out of the way
-    if args.install_camera:  # used by the installer: the camera is ready before the app first opens
+    if args.install_camera or args.remove_camera:   # normally handled by launcher.py before this module loads
+        from . import camera_setup
         splash.close()
-        try:   # never stop the installer with an error box: the app offers the camera again when it opens
-            if vcamlib.bundled() and vcamlib.needs_install():
-                ok, detail = vcamlib.install()
-                log.info("Camera install (installer): %s (%s)", ok, detail)
-                if ok:
-                    cfg0 = Config.load(args.config)
-                    cfg0.driver_auto_install = vcamlib.DRIVER_VERSION
-                    cfg0.save(args.config)
-        except Exception:  # noqa: BLE001
-            log.exception("Camera install (installer) failed")
-        return
-    if args.remove_camera:  # used by the uninstaller
-        splash.close()
-        try:   # never stop the uninstaller with an error box
-            if vcamlib.installed_version() is not None:
-                ok, detail = vcamlib.uninstall()
-                log.info("Camera removal: %s (%s)", ok, detail)
-        except Exception:  # noqa: BLE001
-            log.exception("Camera removal failed")
+        camera_setup.remove() if args.remove_camera else camera_setup.install(args.config)
         return
 
     cfg = Config.load(args.config)

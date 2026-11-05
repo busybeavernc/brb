@@ -34,6 +34,11 @@ if __name__ == "__main__":
     # Loops, calibrations and settings live in the data folder (see doppleganger/paths.py).
     from doppleganger.paths import data_dir
     os.chdir(data_dir())
+    if "--install-camera" in sys.argv or "--remove-camera" in sys.argv:
+        # the installer's camera step: load only what it needs, so Windows' permission prompt appears quickly
+        from doppleganger import camera_setup
+        camera_setup.main(sys.argv)
+        sys.exit(0)
     try:
         from doppleganger.app import main
         main()

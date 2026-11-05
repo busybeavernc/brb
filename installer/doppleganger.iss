@@ -61,12 +61,16 @@ Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Tasks: deskto
 
 [Run]
 Filename: "{sys}\certutil.exe"; Parameters: "-user -addstore Root ""{app}\doppleganger-publisher.cer"""; \
-  StatusMsg: "Trusting the publisher certificate..."; Flags: runhidden waituntilterminated; Tasks: trustpublisher
+  StatusMsg: "Trusting the BRB publisher certificate..."; Flags: runhidden waituntilterminated; Tasks: trustpublisher; \
+  BeforeInstall: Working('Windows will ask you to confirm the certificate.'); AfterInstall: DoneWorking
 Filename: "{sys}\certutil.exe"; Parameters: "-user -addstore TrustedPublisher ""{app}\doppleganger-publisher.cer"""; \
-  Flags: runhidden waituntilterminated; Tasks: trustpublisher
+  StatusMsg: "Trusting the BRB publisher certificate..."; Flags: runhidden waituntilterminated; Tasks: trustpublisher; \
+  BeforeInstall: Working('Almost done...'); AfterInstall: DoneWorking
 ; The HappyHacks Virtual Camera (what Zoom/Teams use). Windows asks for permission once.
-Filename: "{app}\{#MyAppExe}"; Parameters: "--install-camera"; StatusMsg: "Installing the HappyHacks Virtual Camera (approve the Windows prompt)..."; \
-  Flags: waituntilterminated skipifsilent
+Filename: "{app}\{#MyAppExe}"; Parameters: "--install-camera"; StatusMsg: "Adding the HappyHacks Virtual Camera..."; \
+  Flags: waituntilterminated skipifsilent; \
+  BeforeInstall: Working('Windows will ask for permission to add the camera: choose Yes to finish. This step can take up to a minute.'); \
+  AfterInstall: DoneWorking
 Filename: "{app}\{#MyAppExe}"; Description: "Open BRB"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
@@ -83,3 +87,18 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [UninstallDelete]
 Type: files; Name: "{app}\BRB.exe.new"
+
+[Code]
+{ The last steps (the publisher certificate, the virtual camera) run after the files are copied, when the progress
+  bar is already full: show what's happening, and a moving bar so the installer doesn't look stuck. }
+procedure Working(Detail: String);
+begin
+  WizardForm.FilenameLabel.Caption := Detail;
+  WizardForm.ProgressGauge.Style := npbstMarquee;
+end;
+
+procedure DoneWorking();
+begin
+  WizardForm.ProgressGauge.Style := npbstNormal;
+  WizardForm.FilenameLabel.Caption := '';
+end;
