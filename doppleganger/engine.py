@@ -155,6 +155,13 @@ def background_file(camera_name: str) -> str:
     return f"background-{slug}.png"
 
 
+def use_loop_advice(info) -> str:
+    """Shown when you pick a loop: it only looks natural if you, and the room, still look like that."""
+    when = library.default_name(info.created)
+    return (f"Using \"{info.name}\" (recorded {when}). If your lighting, clothes, hair or background have changed "
+            "since then, record a new loop (R) so the switch looks natural.")
+
+
 class Engine:
     """Everything that happens per video frame. Runs on its own thread (see run()).
 
@@ -466,7 +473,8 @@ class Engine:
             self.notify("Cut back to LIVE before switching loops.")
             return
         if os.path.exists(path):
-            self._load_loop(path)
+            self._load_loop(path, announce=False)
+            self.notify(use_loop_advice(library.info(path)), secs=12.0)
 
     def delete_loop(self, path: str) -> None:
         if path == self.loop_path:
@@ -966,10 +974,11 @@ class Engine:
             prev = self._draw_offair_overlay(prev, other, "live camera" if self.mode == "loop" else "loop")
             self._draw_outlines(prev, live, loop_frame)
         elif cfg.show_guides and self.mode == "live" and self.loop_matcher is not None:
-            # Before the first cut: line up with the loop's start pose (violet shape + your aqua line;
-            # the white silhouette is only used while recording).
-            glow = glow_amount(self.sync)
-            if glow >= 0.99:
+            # Before the first cut (a loop just chosen, or BRB just opened): the loop starts from its first frame when
+            # you cut, so that's the faded picture to line up with, plus the start-pose outlines.
+            if self.player is not None and self.player.first_frame is not None:
+                prev = self._draw_offair_overlay(prev, self.player.first_frame, "loop (start pose)")
+            elif glow_amount(self.sync) >= 0.99:
                 guides.put_text(prev, "In start pose - cut is seamless", (12, 34), 0.7, brand.CV_AQUA)
             self._draw_outlines(prev, live, self.player.first_frame if self.player else None)
         if self.cut.waiting:

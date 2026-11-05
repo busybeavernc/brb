@@ -65,3 +65,10 @@ def test_old_camera_folder_cleanup_runs_on_windows(tmp_path):
     bat.write_text("@echo off\r\n" + "\r\n".join(lines) + "\r\nexit /b 0\r\n")
     assert subprocess.run(["cmd.exe", "/c", str(bat)]).returncode == 0
     assert not old.exists()
+
+
+def test_use_loop_advice_mentions_what_to_check():
+    from doppleganger import engine, library
+    info = library.LoopInfo("x.mp4", "Monday - green sweater", 1793880000.0, 90.0, None)
+    msg = engine.use_loop_advice(info)
+    assert "Monday - green sweater" in msg and "lighting" in msg and "clothes" in msg and "record a new loop" in msg
