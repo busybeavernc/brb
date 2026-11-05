@@ -407,10 +407,10 @@ class MainWindow:
         self.sync_pct = ttk.Label(syncrow, text="0%", width=5, anchor="e", style="Small.TLabel")
         self.sync_pct.grid(row=0, column=2)
         self.v_outlines = tk.BooleanVar(value=self.cfg.show_outlines)
-        Toggle(side, text=f"Outlines: you ({brand.LIVE_WORD}) · loop ({brand.LOOP_WORD})   O", variable=self.v_outlines,
+        Toggle(side, text="Outlines", variable=self.v_outlines,
                command=lambda: self.e.request("outlines"), wraplength=px(290)).grid(sticky="w", pady=(8, 0))
         self.v_badge = tk.BooleanVar(value=self.cfg.loop_badge)
-        Toggle(side, text="BRB badge in the meeting while the LOOP is on air", variable=self.v_badge,
+        Toggle(side, text="BRB Watermark", variable=self.v_badge,
                command=lambda: self.e.request("badge"), wraplength=px(290)).grid(sticky="w", pady=(6, 0))
 
         # --- cut ---
