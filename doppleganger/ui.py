@@ -122,6 +122,12 @@ def apply_theme(root: tk.Misc) -> None:
           indicatorforeground=[("selected", IVORY)], upperbordercolor=[("selected", TEAL)],
           lowerbordercolor=[("selected", TEAL)], background=[("active", MIDNIGHT)],
           foreground=[("disabled", MUTED)])
+    s.configure("TRadiobutton", background=MIDNIGHT, foreground=CLOUD, indicatorbackground=SURFACE,
+                indicatorforeground=TEAL, upperbordercolor=MUTED, lowerbordercolor=MUTED, focuscolor=MIDNIGHT,
+                indicatormargin=(0, 0, 6, 0), indicatorsize=14)
+    s.map("TRadiobutton", indicatorbackground=[("selected", TEAL), ("pressed", SURFACE_HI)],
+          indicatorforeground=[("selected", IVORY)], upperbordercolor=[("selected", TEAL)],
+          lowerbordercolor=[("selected", TEAL)], background=[("active", MIDNIGHT)])
     s.configure("TCombobox", fieldbackground=SURFACE, background=SURFACE, foreground=CLOUD, arrowcolor=CLOUD,
                 bordercolor=BORDER, lightcolor=SURFACE, darkcolor=SURFACE, padding=(8, 5))
     s.map("TCombobox", fieldbackground=[("readonly", SURFACE)], foreground=[("readonly", CLOUD)],
@@ -184,11 +190,33 @@ class HoldButton(tk.Label):
             self.configure(bg=bg, fg=fg)
 
 
+def theme_row(parent, main, reopen) -> ttk.Frame:
+    """Radio buttons for the colour themes, each with a little swatch of its colours."""
+    row = ttk.Frame(parent)
+    var = tk.StringVar(value=brand.THEME)
+    for name, t in brand.THEMES.items():
+        cell = ttk.Frame(row)
+        cell.pack(side="left", padx=(0, 18))
+        sw = tk.Canvas(cell, width=px(46), height=px(18), highlightthickness=1, highlightbackground=BORDER,
+                       bg=t["MIDNIGHT"], bd=0)
+        w3 = px(46) // 3
+        for i, c in enumerate((t["TEAL"], t["AQUA"], t["VIOLET"])):
+            sw.create_rectangle(i * w3 + 2, 3, (i + 1) * w3 - 1, px(18) - 2, fill=c, width=0)
+        sw.pack(side="left", padx=(0, 6))
+        ttk.Radiobutton(cell, text=t["label"], value=name, variable=var,
+                        command=lambda n=name: main.switch_theme(n, reopen())).pack(side="left")
+        sw.bind("<Button-1>", lambda _e, n=name: (var.set(n), main.switch_theme(n, reopen())))
+    return row
+
+
 class MainWindow:
-    def __init__(self, engine, minimized: bool = False):
+    def __init__(self, engine, minimized: bool = False, engine_thread=None, reopen=None):
         self.e = engine
         self.cfg = engine.cfg
         self._start_minimized = minimized
+        self._engine_thread = engine_thread   # set when the window is rebuilt (new theme): the engine keeps running
+        self._reopen = reopen                 # ("settings",) or ("wizard", page) to show again after a rebuild
+        self.rebuild = False
         self.root = tk.Tk()
         self.root.title("BRB")
         self.root.geometry("1280x760")
@@ -302,7 +330,7 @@ class MainWindow:
         self.sync_pct = ttk.Label(syncrow, text="0%", width=5, anchor="e", style="Small.TLabel")
         self.sync_pct.grid(row=0, column=2)
         self.v_outlines = tk.BooleanVar(value=self.cfg.show_outlines)
-        ttk.Checkbutton(side, text="Outlines: you (green) · loop (apricot)   O", variable=self.v_outlines,
+        ttk.Checkbutton(side, text=f"Outlines: you ({brand.LIVE_WORD}) · loop ({brand.LOOP_WORD})   O", variable=self.v_outlines,
                         command=lambda: self.e.request("outlines")).grid(sticky="w", pady=(6, 0))
 
         # --- cut ---
@@ -730,9 +758,14 @@ class MainWindow:
                 self.root.createcommand("tk::mac::ShowPreferences", self.open_settings)  # Cmd+,
             except tk.TclError:
                 pass
-        self._engine_thread = threading.Thread(target=self.e.run, daemon=True, name="engine")
-        self._engine_thread.start()
+        if self._engine_thread is None:
+            self._engine_thread = threading.Thread(target=self.e.run, daemon=True, name="engine")
+            self._engine_thread.start()
         self.root.after(200, self.apply_capture_setting)
+        if self._reopen and self._reopen[0] == "settings":
+            self.root.after(250, self.open_settings)
+        elif self._reopen and self._reopen[0] == "wizard":
+            self.root.after(250, lambda: self.open_wizard(page=self._reopen[1]))
         self.root.after(33, self.tick)
         if self._start_minimized:
             self.root.after(300, self.root.iconify)  # started with Windows: stay out of the way
@@ -745,8 +778,20 @@ class MainWindow:
         else:
             self.root.after(0, self.after_eula)
         self.root.mainloop()
+        if self.rebuild:   # a new theme: app.py builds a fresh window on the same, still-running engine
+            return
         self.e.stop()
         self._engine_thread.join(timeout=5)
+
+    def switch_theme(self, name: str, reopen=None) -> None:
+        """Apply a colour theme: the window is rebuilt in the new colours (the camera, the loop and what your
+        meeting sees carry on untouched), then `reopen` (Settings / the setup guide) is shown again."""
+        if name == self.cfg.theme:
+            return
+        self.cfg.theme = name
+        self.cfg.save(self.e.config_path)
+        self.rebuild, self.reopen = True, reopen
+        self.root.after(50, self.root.destroy)
 
     def after_eula(self) -> None:
         """What happens once the license agreement is accepted: the setup guide or the Mac permissions page."""
@@ -1143,6 +1188,8 @@ class SettingsWindow:
         f = ttk.Frame(area.inner, padding=20)
         f.pack(fill="both")
         ttk.Label(f, text="Settings", style="Title.TLabel").grid(sticky="w", pady=(0, 10))
+        ttk.Label(f, text="Appearance", style="Head.TLabel").grid(sticky="w", pady=(4, 2))
+        theme_row(f, main, lambda: ("settings",)).grid(sticky="w", pady=(0, 6))
 
         ttk.Label(f, text="Text size", style="Head.TLabel").grid(sticky="w", pady=(4, 2))
         ts = ttk.Frame(f)
@@ -1187,7 +1234,7 @@ class SettingsWindow:
         ttk.Checkbutton(f, text="Show alignment guides in the preview (G)", variable=self.v_guides,
                         command=self._changed).grid(sticky="w")
         self.v_outlines = tk.BooleanVar(value=self.cfg.show_outlines)
-        ttk.Checkbutton(f, text="Show live (green) and loop (apricot) outlines (O)", variable=self.v_outlines,
+        ttk.Checkbutton(f, text=f"Show live ({brand.LIVE_WORD}) and loop ({brand.LOOP_WORD}) outlines (O)", variable=self.v_outlines,
                         command=self._changed).grid(sticky="w")
         self.v_tips = tk.BooleanVar(value=self.cfg.show_record_tips)
         ttk.Checkbutton(f, text="Show recording tips before each recording", variable=self.v_tips,
@@ -1450,7 +1497,7 @@ class Wizard:
         self.win.protocol("WM_DELETE_WINDOW", self.close)
         self.step = 0
         self._logo = _photo(brand.asset("logo_dark.png"), 330)
-        self.body = ttk.Frame(self.win, padding=24, width=px(480), height=px(480 if IS_MAC else 350))
+        self.body = ttk.Frame(self.win, padding=24, width=px(480), height=px(520 if IS_MAC else 420))
         self.body.pack(fill="both", expand=True)
         self.body.pack_propagate(False)
         nav = ttk.Frame(self.win, padding=(24, 0, 24, 18))
@@ -1531,6 +1578,9 @@ class Wizard:
                    "(a restroom break, a coffee refill) without your camera going dark and distracting everyone.")
         self._para("This guide takes about 2 minutes: add the camera, pick your webcam, "
                    "and record your first loop.")
+        ttk.Label(self.body, text="Pick a look for BRB (you can change it any time in Settings):",
+                  style="Small.TLabel").pack(anchor="w", pady=(10, 4))
+        theme_row(self.body, self.main, lambda: ("wizard", self.STEPS[self.step])).pack(anchor="w")
 
     def _page_camera(self):
         if IS_MAC:
@@ -1651,7 +1701,7 @@ class Wizard:
         self._title(f"{self.STEPS.index('record')}  Record your first loop")
         self._para("Sit as you would in a meeting. Hold still for the first 10 seconds, then look natural - "
                    "nod, blink, glance at the screen. In the last 10 seconds, step back into your silhouette "
-                   "until it glows green, and hold still.")
+                   f"until it glows {brand.LIVE_WORD}, and hold still.")
         self.rec_button = ttk.Button(self.body, text="Start recording", style="Accent.TButton",
                                      command=lambda: self.e.request("record"))
         self.rec_button.pack(anchor="w", pady=(4, 0))

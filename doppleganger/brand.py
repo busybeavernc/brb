@@ -66,3 +66,44 @@ def asset(name: str) -> str:
         if os.path.exists(p):
             return p
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", name)
+
+
+# ---------- themes (Settings > Appearance) ----------
+# Each theme sets the colour roles above. Ivory is the brand look; Slate is a cooler, neutral alternative.
+THEMES = {
+    "ivory": {
+        "label": "Ivory (default)", "LIVE_WORD": "green", "LOOP_WORD": "apricot",
+        "MIDNIGHT": IVORY, "CLOUD": TEAL, "INK": "#1D3D3D", "AQUA": EUCALYPTUS, "VIOLET": APRICOT,
+        "SURFACE": "#FFFFFF", "SURFACE_HI": "#E7F0EC", "BORDER": "#D8D1C5", "MUTED": "#6B807C",
+        "VIOLET_DARK": "#D99A74", "AQUA_DARK": "#5E9A86", "TEAL": TEAL, "TEAL_DARK": "#1A3838", "IVORY": IVORY,
+        "AMBER": "#F0BE5A", "DANGER": "#E07A6E", "OK_TEXT": "#2F7A64", "WARN_TEXT": "#9A6212", "BAD_TEXT": "#B5443A",
+        "cv": {"AQUA": "#4FA387", "VIOLET": "#D9814F", "VIOLET_DARK": "#B5643A", "AQUA_DARK": "#2F7A64",
+               "AMBER": "#D99A2B", "MIDNIGHT": TEAL, "DANGER": "#D2544A"},
+    },
+    "slate": {
+        "label": "Slate", "LIVE_WORD": "blue", "LOOP_WORD": "copper",
+        "MIDNIGHT": "#ECEFF3", "CLOUD": "#1E2A36", "INK": "#15202B", "AQUA": "#8FB3D1", "VIOLET": "#DDA272",
+        "SURFACE": "#FFFFFF", "SURFACE_HI": "#E1E8F0", "BORDER": "#C9D1DB", "MUTED": "#5F6B78",
+        "VIOLET_DARK": "#C2814C", "AQUA_DARK": "#5E86A8", "TEAL": "#2C4A66", "TEAL_DARK": "#1F364C", "IVORY": "#F5F7FA",
+        "AMBER": "#F0BE5A", "DANGER": "#E07A6E", "OK_TEXT": "#2E6A8F", "WARN_TEXT": "#93600F", "BAD_TEXT": "#B5443A",
+        "cv": {"AQUA": "#3F7BAE", "VIOLET": "#C8763A", "VIOLET_DARK": "#A85F2A", "AQUA_DARK": "#2B5C86",
+               "AMBER": "#D99A2B", "MIDNIGHT": "#1E2A36", "DANGER": "#D2544A"},
+    },
+}
+THEME = "ivory"
+LIVE_WORD, LOOP_WORD = "green", "apricot"   # the LIVE / LOOP colours by name, for labels
+
+
+def set_theme(name: str) -> str:
+    """Switch every colour role to `name` (unknown names: the default). Takes effect for windows built afterwards
+    (the window is rebuilt when the theme changes); the preview overlays use it straight away."""
+    global THEME
+    t = THEMES.get(name) or THEMES["ivory"]
+    THEME = name if name in THEMES else "ivory"
+    g = globals()
+    for k, v in t.items():
+        if k not in ("label", "cv"):
+            g[k] = v
+    for k, v in t["cv"].items():
+        g["CV_" + k] = bgr(v)
+    return THEME

@@ -91,9 +91,19 @@ def main() -> None:
         engine.install_driver(ask=False)
 
     splash.status("Opening the window...", 0.95)
-    from .ui import MainWindow  # imported late: Tk isn't needed for --remove-camera
+    from . import brand
+    brand.set_theme(cfg.theme)
+    from . import ui  # imported late: Tk isn't needed for --remove-camera
     splash.close()  # one Tk window at a time (two Tk roots at once misbehave on macOS)
-    MainWindow(engine, minimized=args.minimized).run()
+    win = ui.MainWindow(engine, minimized=args.minimized)
+    win.run()
+    while win.rebuild:   # a new colour theme: rebuild the window around the running engine
+        import importlib
+        brand.set_theme(cfg.theme)
+        ui = importlib.reload(ui)   # the window code picks up the new colours
+        log.info("Theme: %s", brand.THEME)
+        win = ui.MainWindow(engine, engine_thread=win._engine_thread, reopen=win.reopen)
+        win.run()
     log.info("BRB closed")
     logging.shutdown()
     # Everything is saved and released by now; don't let a stray tray/hotkey thread keep us alive.
