@@ -143,6 +143,15 @@ def _engine_stub(tmp_path):
     e.mode = "live"
     e.toast, e.toast_until = "", 0.0
     e.tips_pending, e.ui_attached = False, False
+
+    class SilentVoice:
+        said: list = []
+
+        def say(self, ev): self.said.append(ev)
+        def length(self, ev): return 0.0
+        def chime(self, kind): pass
+    e.voice = SilentVoice()
+    e.voice.said = []
     return e
 
 
@@ -168,6 +177,8 @@ def test_record_again_cancels_and_saves_nothing(tmp_path):
     from doppleganger.recorder import State
     e = _engine_stub(tmp_path)
     e.record()
+    assert e.recorder.state == State.READY and e.recorder.events == ["rec_intro"]   # get ready first
+    e.record()                       # "Start recording" (same button / R)
     frame = np.zeros((96, 128, 3), np.uint8)
     for _ in range(5):
         e.recorder.update(frame)
@@ -183,7 +194,9 @@ def test_with_ai_detection_recording_starts_without_calibrating(tmp_path):
     e = _engine_stub(tmp_path)
     e.background, e.seg = None, object()
     e.record()
-    assert e.calibrator is None and e.recorder.state == State.COUNTDOWN
+    assert e.calibrator is None and e.recorder.state == State.READY
+    e.record_go()
+    assert e.recorder.state == State.COUNTDOWN
 
 
 def test_esc_cancels_calibration_before_first_recording(tmp_path):
@@ -212,3 +225,24 @@ def test_outline_traces_the_person_against_the_calibrated_room():
     assert 150 < xs.min() < 190 and 450 < xs.max() < 490  # shoulders span ~170..470
     cm = tracer.contour(frame, (640, 360), mirrored=True)
     assert abs((639 - cm[..., 0].max()) - xs.min()) <= 2  # mirrored for the mirrored preview
+
+
+def test_ready_step_waits_and_space_starts(tmp_path):
+    from doppleganger.recorder import State
+    e = _engine_stub(tmp_path)
+    e.player = None
+    e.record()
+    frame = np.zeros((96, 128, 3), np.uint8)
+    for _ in range(20):
+        e.recorder.update(frame)
+    assert e.recorder.state == State.READY                     # nothing happens until you're ready
+    e.toggle()                                                 # Space / F9
+    assert e.recorder.state == State.COUNTDOWN and "rec_get_ready" in e.recorder.events
+
+
+def test_cancel_while_getting_ready(tmp_path):
+    from doppleganger.recorder import State
+    e = _engine_stub(tmp_path)
+    e.record()
+    e.cancel_recording()
+    assert e.recorder.state == State.IDLE and e.recorder.events[-1] == "rec_cancelled"

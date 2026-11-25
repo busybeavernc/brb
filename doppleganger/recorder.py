@@ -31,6 +31,7 @@ from . import brand
 
 class State(Enum):
     IDLE = "idle"
+    READY = "ready"            # Record pressed: get comfortable, then Start (Enter / Space / the button)
     COUNTDOWN = "countdown"
     RECORDING = "recording"
     PROCESSING = "processing"
@@ -68,6 +69,7 @@ class Recorder:
         self.cfg = cfg
         self.state = State.IDLE
         self.message = ""
+        self.events: list[str] = []
         self.result_path: str | None = None  # set when a new loop is ready
         self.progress = 0.0                    # stitching progress 0..1 (while PROCESSING)
         self.background: np.ndarray | None = None  # calibrated empty-room image (optional)
@@ -86,6 +88,17 @@ class Recorder:
         self.match = 0.0
         self._writer: _Writer | None = None
         self._raw_path = ""
+        self._said: set[str] = set()       # moments already announced (each once per recording)
+        self._last_nudge = 0.0
+        self._was_matched = False
+        self._counted = 0
+
+    def _event(self, name: str, once: bool = True) -> None:
+        """A moment for the spoken guidance (voice.py); the engine plays them."""
+        if once and name in self._said:
+            return
+        self._said.add(name)
+        self.events.append(name)
 
     def _make_silhouette(self, frame: np.ndarray, face) -> None:
         sil = extract(frame, face, self.background, self.segmenter)
@@ -94,21 +107,37 @@ class Recorder:
         self.silhouette = sil
 
     # ---------- control ----------
-    def start(self) -> None:
-        if self.state in (State.IDLE,):
+    def prepare(self) -> None:
+        """Record pressed: wait for the person to get ready (no countdown yet)."""
+        if self.state == State.IDLE:
             self._reset()
-            self.state = State.COUNTDOWN
-            self.t0 = time.monotonic()
+            self.state = State.READY
             self.message = ""
+            self._event("rec_intro")
+
+    def go(self, delay: float = 0.0) -> None:
+        """Start pressed: the countdown, after `delay` s (while "get into your starting position" is said)."""
+        if self.state == State.READY:
+            self.state = State.COUNTDOWN
+            self.t0 = time.monotonic() + delay
+            self._event("rec_get_ready")
+
+    def start(self) -> None:
+        """Straight to the countdown (no ready step)."""
+        if self.state == State.IDLE:
+            self._reset()
+            self.state = State.READY
+        self.go()
 
     def cancel(self) -> None:
-        if self.state in (State.COUNTDOWN, State.RECORDING):
+        if self.state in (State.READY, State.COUNTDOWN, State.RECORDING):
             if self._writer:
                 self._writer.close()
             if self._raw_path and os.path.exists(self._raw_path):
                 os.remove(self._raw_path)
             self.state = State.IDLE
             self.message = "Recording cancelled."
+            self._event("rec_cancelled", once=False)
 
     def end_now(self) -> None:
         """Finish early - only allowed once you're in the return zone."""
@@ -136,6 +165,10 @@ class Recorder:
     # ---------- per-frame ----------
     def update(self, frame: np.ndarray) -> None:
         if self.state == State.COUNTDOWN:
+            left = self.cfg.countdown_seconds - (time.monotonic() - self.t0)
+            if 0 < left <= self.cfg.countdown_seconds and left <= 3 and int(np.ceil(left)) != self._counted:
+                self._counted = int(np.ceil(left))
+                self._event(f"count_{self._counted}")
             if time.monotonic() - self.t0 >= self.cfg.countdown_seconds:
                 os.makedirs(self.cfg.loops_dir, exist_ok=True)
                 self._raw_path = os.path.join(self.cfg.loops_dir, "_recording_raw.avi")
@@ -143,6 +176,7 @@ class Recorder:
                                        (frame.shape[1], frame.shape[0]))
                 self.state = State.RECORDING
                 self.rec_start = time.monotonic()
+                self._event("rec_hold_start")
         if self.state != State.RECORDING:
             return
 
@@ -167,15 +201,41 @@ class Recorder:
 
         if self.in_return_zone():
             self.match = self.matcher.update(frame, small)
+        self._announce()
 
         if self.remaining <= 0:
             self._finish()
+
+    def _announce(self) -> None:
+        """The spoken guidance's moments during the recording."""
+        cfg, now = self.cfg, time.monotonic()
+        if not self.in_start_hold():
+            self._event("rec_relax")
+        if self.elapsed >= cfg.loop_seconds / 2:
+            self._event("rec_halfway")
+        if self.remaining <= cfg.return_prompt_seconds + 5 and not self.in_return_zone():
+            self._event("rec_return_soon")
+        if self.in_return_zone():
+            self._event("rec_return_now")
+            matched = glow_amount(self.match) >= 0.99
+            if matched and not self._was_matched:
+                self._event("rec_matched")
+            elif self._was_matched and glow_amount(self.match) < 0.6 and now - self._last_nudge > 4:
+                self._last_nudge = now
+                self._event("rec_off_match", once=False)
+            if matched:
+                self._was_matched = True
+        if (self.in_start_hold() or self.in_end_hold()) and self.motion > 0.6 and self.elapsed > 1.5 \
+                and now - self._last_nudge > 15:
+            self._last_nudge = now
+            self._event("rec_less_movement", once=False)
 
     # ---------- finishing ----------
     def _finish(self) -> None:
         self.progress = 0.0
         self.state = State.PROCESSING
         self.message = "Stitching your new loop..."
+        self._event("rec_done")
         threading.Thread(target=self._process, daemon=True).start()
 
     def _process(self) -> None:
@@ -191,6 +251,7 @@ class Recorder:
                 self.silhouette.save(path + ".mask.png")
             self.result_path = path
             self.message = f"New loop ready: {os.path.basename(path)}"
+            self._event("loop_ready")
         except Exception as e:  # noqa: BLE001 - show any failure in the UI
             self.message = f"Stitching failed: {e}"
         self.state = State.IDLE
@@ -237,10 +298,16 @@ class Recorder:
         """Coaching overlay on the preview (drawn in place; also returned)."""
         cfg = self.cfg
         h, w = preview.shape[:2]
+        if self.state == State.READY:
+            guides.banner(preview, "Get comfortable - press Enter or Space (or Start recording) when you're ready",
+                          brand.CV_VIOLET)
+            guides.put_text(preview, "Esc = cancel", (w - 130, h - 20), 0.45)
+            return preview
         if self.state == State.COUNTDOWN:
             guides.put_text(preview, "R / Esc = cancel", (preview.shape[1] - 160, preview.shape[0] - 50), 0.45)
-            n = cfg.countdown_seconds - int(time.monotonic() - self.t0)
-            guides.banner(preview, f"Get in your start pose and HOLD STILL...  {n}", brand.CV_VIOLET)
+            n = min(cfg.countdown_seconds, cfg.countdown_seconds - int(time.monotonic() - self.t0))
+            guides.banner(preview, f"Get in your start pose and HOLD STILL...  {n}" if time.monotonic() >= self.t0
+                          else "Get in your start pose and HOLD STILL...", brand.CV_VIOLET)
             return preview
         if self.state != State.RECORDING:
             return preview

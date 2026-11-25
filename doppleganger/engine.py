@@ -14,7 +14,7 @@ import numpy as np
 from . import guides, library, updater
 from . import vcam as vcamlib
 from .calibrate import Calibrator
-from . import camera_users, facekeys, lightmatch, scenecheck
+from . import camera_users, facekeys, lightmatch, scenecheck, voice
 from .camera import Camera, NoCamera, placeholder
 from .config import Config
 from .cutcontrol import SYNC_THRESHOLD, CutController
@@ -209,6 +209,7 @@ class Engine:
         self.loop_light = None
         self.live_light = None
         self.light = lightmatch.LightMatch()   # the loop, adjusted to the room's light now
+        self.voice = voice.Voice(cfg)          # spoken guidance while recording, chimes on cuts
         # face guide and scene checks (analysis thread)
         self.face_target = self.face_live = None
         self.face_alignment: facekeys.Alignment | None = None
@@ -608,6 +609,9 @@ class Engine:
 
     # ---------- actions ----------
     def toggle(self) -> None:
+        if self.recorder.state == State.READY:   # Space / F9 while getting ready = start the recording
+            self.record_go()
+            return
         if self.player is None:
             self.notify("No loop yet - record one first.")
             return
@@ -635,6 +639,7 @@ class Engine:
             self.fade_from, self.fade_start = self.mode, time.monotonic()
         self.mode = new
         self._apply_mic()
+        self.voice.chime(new)
 
     def _license_tick(self) -> None:
         """Every frame: keep LOOP time leased while the LOOP is on air; at 0:00 (or offline) cut back to LIVE."""
@@ -682,15 +687,18 @@ class Engine:
     @property
     def recording_active(self) -> bool:
         """Recording, counting down, or calibrating on the way to a recording."""
-        return (self.recorder.state in (State.COUNTDOWN, State.RECORDING)
+        return (self.recorder.state in (State.READY, State.COUNTDOWN, State.RECORDING)
                 or (self.calibrator is not None and self._record_after_calibration))
 
     def record(self, confirmed: bool = False) -> None:
-        """Record button / R: starts a recording - or cancels the one in progress.
-        With a window open, the first press shows the recording tips; Start (or R again) begins."""
+        """Record button / R: get ready for a recording (then Start: Enter / Space / the button) - or cancel the one
+        in progress. With a window open, the first press shows the recording tips; their Start leads to the ready
+        step."""
         if self.tips_pending and not confirmed:
             confirmed = True  # R pressed again while the tips are showing = start
-        if self.recording_active:
+        if self.recorder.state == State.READY:
+            self.record_go()   # the Record button reads "Start recording" now
+        elif self.recording_active:
             self.cancel_recording()
         elif self.recorder.state == State.PROCESSING:
             self.notify("Still stitching the last loop - one moment.")
@@ -706,7 +714,12 @@ class Engine:
             self.calibrate(then_record=True)
         else:
             self.tips_pending = False
-            self.recorder.start()
+            self.recorder.prepare()
+
+    def record_go(self) -> None:
+        """Start the countdown - after "get into your starting position" has been said."""
+        if self.recorder.state == State.READY:
+            self.recorder.go(delay=self.voice.length("rec_get_ready"))
 
     def calibrate(self, then_record: bool = False) -> None:
         if self.mode == "loop" or self.recorder.state != State.IDLE:
@@ -879,6 +892,8 @@ class Engine:
                 self.release_cut()
             elif a == "record":
                 self.record()
+            elif a == "record_go":
+                self.record_go()
             elif a == "record_now":
                 self.record(confirmed=True)
             elif a == "tips_closed":
@@ -965,6 +980,8 @@ class Engine:
                 if self.calibrator is not None:
                     self._update_calibration(live)
                 self.recorder.update(live)
+                while self.recorder.events:
+                    self.voice.say(self.recorder.events.pop(0))
                 if self.recorder.result_path:
                     self._load_loop(self.recorder.result_path)
                     self.recorder.result_path = None
@@ -1188,7 +1205,7 @@ class Engine:
 
     def render_preview(self, out: np.ndarray, live: np.ndarray, loop_frame: np.ndarray | None) -> np.ndarray:
         cfg = self.cfg
-        recording = self.recorder.state in (State.COUNTDOWN, State.RECORDING)
+        recording = self.recorder.state in (State.READY, State.COUNTDOWN, State.RECORDING)
         base = live if (recording or self.calibrator is not None) else out
         # a message instead of your picture (starting up / no webcam) isn't mirrored: it reads normally
         message_only = getattr(self, "_showing_message", False) and self.mode == "live"

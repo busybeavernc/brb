@@ -63,6 +63,9 @@ class Config:
     show_guides: bool = True
     show_outlines: bool = True          # Aqua (you) / Violet (loop) outlines in the preview
     show_face_guide: bool = True        # eyes / nose / mouth alignment guide in the preview (facekeys.py)
+    voice_guidance: bool = True         # spoken guidance while recording a loop (voice.py)
+    voice_profile: str = ""             # voice name ("" = the default voice)
+    meeting_chimes: bool = False        # soft chime on each cut (a meeting microphone may pick it up)
     scene_checks: bool = True           # warn if the camera moved, the background or your clothes changed
     show_record_tips: bool = True       # show "how to record a good loop" before each recording
     mac_permissions_seen: bool = False  # Mac: the permissions page has been shown once

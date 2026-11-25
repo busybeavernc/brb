@@ -529,6 +529,7 @@ class MainWindow:
             r.bind_class(cls, "<KeyPress-space>", lambda _e: None)
             r.bind_class(cls, "<KeyRelease-space>", lambda _e: None)
         r.bind_all("<KeyPress-space>", self._space_down)
+        r.bind("<Return>", lambda _e: self.e.request("record_go") if self.e.recorder.state == State.READY else None)
         r.bind_all("<KeyRelease-space>", self._space_up)
         keys = {"r": "record", "c": "calibrate", "e": "end_recording", "u": "update", "k": "camera:"}
         for k, action in keys.items():
@@ -557,12 +558,19 @@ class MainWindow:
             self.root.after_cancel(self._pending_release)
             self._pending_release = None
             return "break"
+        if self.e.recorder.state == State.READY:   # getting ready to record: Space = start
+            self.e.request("record_go")
+            self._space_starts = True
+            return "break"
         self.e.request("cut_press")
         return "break"
 
     def _space_up(self, _e=None):
         if self._typing():
             return None
+        if getattr(self, "_space_starts", False):   # that Space started a recording: it isn't a cut
+            self._space_starts = False
+            return "break"
         # Wait a moment: on some systems key auto-repeat sends release+press pairs.
         self._pending_release = self.root.after(40, self._space_released)
         return "break"
@@ -741,7 +749,8 @@ class MainWindow:
             elif self.obs_btn.winfo_ismapped():
                 self.obs_btn.pack_forget()
         rec = e.recorder.state
-        self.rec_btn.configure(text="Cancel recording (R)" if e.recording_active else
+        self.rec_btn.configure(text="Start recording (Enter)" if rec == State.READY else
+                               "Cancel recording (R)" if e.recording_active else
                                ("Stitching..." if rec == State.PROCESSING else "Record loop (R)"))
         if self.v_outlines.get() != self.cfg.show_outlines:
             self.v_outlines.set(self.cfg.show_outlines)
@@ -1131,13 +1140,17 @@ class RecordTipsDialog:
             col.pack(side="left", fill="x")
             ttk.Label(col, text=head, style="Head.TLabel").pack(anchor="w")
             ttk.Label(col, text=body, style="Small.TLabel", wraplength=px(410), justify="left").pack(anchor="w")
-        ttk.Label(f, text="Changed your mind mid-way? Press R or Esc to cancel; nothing is saved.",
-                  style="Small.TLabel").pack(anchor="w", pady=(10, 12))
+        ttk.Label(f, text="Next, BRB waits while you get comfortable: press Enter or Space when you're ready, and the "
+                          "countdown starts. Changed your mind mid-way? Press R or Esc to cancel; nothing is saved.",
+                  style="Small.TLabel", wraplength=px(440), justify="left").pack(anchor="w", pady=(10, 8))
+        self.v_voice = tk.BooleanVar(value=main.cfg.voice_guidance)
+        Toggle(f, text="Spoken guidance while recording", variable=self.v_voice,
+               command=self._voice_changed).pack(anchor="w", pady=(0, 12))
         bottom = ttk.Frame(f)
         bottom.pack(fill="x")
         self.v_again = tk.BooleanVar(value=False)
         Toggle(bottom, text="Don't show this again", variable=self.v_again).pack(side="left")
-        ttk.Button(bottom, text="Start recording  (R)", style="Accent.TButton",
+        ttk.Button(bottom, text="Continue  (R)", style="Accent.TButton",
                    command=self.start).pack(side="right")
         ttk.Button(bottom, text="Not now", command=self.dismiss).pack(side="right", padx=8)
         for key in ("<Return>", "<KeyPress-r>", "<KeyPress-R>"):
@@ -1154,6 +1167,10 @@ class RecordTipsDialog:
         except Exception:  # noqa: BLE001
             pass
         self.win.focus_force()
+
+    def _voice_changed(self) -> None:
+        self.main.cfg.voice_guidance = bool(self.v_voice.get())
+        self.main.cfg.save(self.main.e.config_path)
 
     def _remember(self) -> None:
         if self.v_again.get():
@@ -1387,6 +1404,30 @@ class SettingsWindow:
                   command=lambda _v: self._badge_changed()).pack(side="left", padx=8)
         ttk.Button(bs, text="Reset position and size", command=self._badge_reset).pack(side="left", padx=(8, 0))
 
+        ttk.Label(f, text="Voice", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
+        self.v_voice = tk.BooleanVar(value=self.cfg.voice_guidance)
+        Toggle(f, text="Spoken guidance while recording a loop", variable=self.v_voice,
+               command=self._changed).grid(sticky="w")
+        vrow = ttk.Frame(f)
+        vrow.grid(sticky="w", padx=(44, 0), pady=(4, 0))
+        from . import voice as voicelib
+        names = list(voicelib.profiles())
+        self.v_profile = tk.StringVar(value=self.cfg.voice_profile if self.cfg.voice_profile in names
+                                      else voicelib.default_profile())
+        ttk.Label(vrow, text="Voice").pack(side="left")
+        box = ttk.Combobox(vrow, textvariable=self.v_profile, values=names, state="readonly", width=16)
+        box.pack(side="left", padx=8)
+        box.bind("<<ComboboxSelected>>", lambda _e: self._changed())
+        ttk.Button(vrow, text="Play sample", command=self._voice_sample).pack(side="left")
+        if not names:
+            box.configure(state="disabled")
+            ttk.Label(f, text="No voices installed yet.", style="Small.TLabel").grid(sticky="w", padx=(44, 0))
+        self.v_chimes = tk.BooleanVar(value=self.cfg.meeting_chimes)
+        Toggle(f, text="Soft chime when you cut to LOOP or back to LIVE", variable=self.v_chimes,
+               command=self._changed).grid(sticky="w", pady=(6, 0))
+        ttk.Label(f, text="Use headphones: through speakers, your meeting's microphone may pick it up.",
+                  style="Small.TLabel", wraplength=px(420), justify="left").grid(sticky="w", padx=(44, 0))
+
         ttk.Label(f, text="Cuts & preview", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
         self.v_fade = tk.BooleanVar(value=self.cfg.crossfade_ms > 0)
         self.v_guides = tk.BooleanVar(value=self.cfg.show_guides)
@@ -1487,6 +1528,12 @@ class SettingsWindow:
         center_on(self.win, main.root)
         self.win.after(150, main.apply_capture_setting)
 
+    def _voice_sample(self) -> None:
+        self.cfg.voice_profile = self.v_profile.get()
+        was, self.cfg.voice_guidance = self.cfg.voice_guidance, True
+        self.e.voice.say("rec_intro")
+        self.cfg.voice_guidance = was
+
     def _badge_changed(self) -> None:
         self.cfg.badge_size = round(float(self.v_badge_size.get()), 3)
         self.cfg.save(self.e.config_path)
@@ -1511,6 +1558,9 @@ class SettingsWindow:
             self.e.scene_warnings = []
         c.show_record_tips = self.v_tips.get()
         c.crossfade_ms = 300 if self.v_fade.get() else 0
+        c.voice_guidance = self.v_voice.get()
+        c.voice_profile = self.v_profile.get()
+        c.meeting_chimes = self.v_chimes.get()
         c.match_lighting = self.v_match.get()
         c.overlay_opacity = round(float(self.v_opacity.get()), 2)
         c.save(self.e.config_path)
