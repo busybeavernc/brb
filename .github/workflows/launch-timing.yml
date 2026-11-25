@@ -1,0 +1,63 @@
+name: Launch timing
+
+# Manual: how long a published Windows release takes to start, on a GitHub Windows machine.
+# Runs "BRB.exe --selftest" (loads everything the app loads when it opens: libraries, the AI model, Tk) several times
+# and reports each run's time. Uses the installer when the release has one, as people do.
+# Note: GitHub's machines don't scan files with antivirus the way a real PC does, so real first launches are slower;
+# the comparison between releases is what counts.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag in busybeavernc/brb-public (e.g. v0.1.97), or 'latest'"
+        default: latest
+      runs:
+        description: "Launches to time"
+        default: "5"
+
+permissions:
+  contents: read
+
+jobs:
+  time:
+    runs-on: windows-latest
+    steps:
+      - name: Download the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ inputs.tag }}"
+          if ($tag -eq "latest") { $tag = (gh release view -R busybeavernc/brb-public --json tagName -q .tagName) }
+          "TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
+          gh release download $tag -R busybeavernc/brb-public -p BRBSetup.exe -p BRB.exe -D dl
+          Get-ChildItem dl | Format-Table Name, Length
+
+      - name: Install it
+        shell: pwsh
+        run: |
+          $p = Start-Process dl\BRBSetup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/NOICONS','/TASKS=""' -Wait -PassThru
+          "installer exit code: $($p.ExitCode)"
+          $exe = "$env:LOCALAPPDATA\Programs\BRB\BRB.exe"
+          if (-not (Test-Path $exe)) { Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Depth 2 | Select-Object -First 30 | Format-Table FullName; exit 1 }
+          "EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Get-ChildItem (Split-Path $exe) | Format-Table Name, Length
+
+      - name: Time launches
+        shell: pwsh
+        run: |
+          $n = [int]"${{ inputs.runs }}"
+          $times = @()
+          for ($i = 1; $i -le $n; $i++) {
+            $s = [Diagnostics.Stopwatch]::StartNew()
+            $p = Start-Process $env:EXE -ArgumentList '--selftest' -Wait -PassThru
+            $s.Stop()
+            $t = [math]::Round($s.Elapsed.TotalSeconds, 2)
+            $times += $t
+            "launch ${i}: ${t} s (exit $($p.ExitCode))"
+          }
+          $first = $times[0]
+          $rest = ($times | Select-Object -Skip 1 | Measure-Object -Average).Average
+          $summary = "$env:TAG  first launch: $first s   later launches (average): $([math]::Round($rest, 2)) s"
+          $summary
+          "### $summary" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
