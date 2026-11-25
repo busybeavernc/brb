@@ -1460,6 +1460,8 @@ class SettingsWindow:
         ttk.Label(up, text=f"Version {updater.current_version()} · checks automatically when opened",
                   style="Small.TLabel").pack(side="left")
         ttk.Button(up, text="Check now", command=lambda: self.e.request("update")).pack(side="right")
+        self.restart_btn = ttk.Button(up, text="Restart to update", style="Accent.TButton",
+                                      command=lambda: self.e.request("apply_update"))
         ttk.Button(f, text="Done", style="Accent.TButton", command=self.close).grid(sticky="e", pady=(16, 0))
         self.refresh()
         MainWindow._no_button_focus(self.win)
@@ -1529,6 +1531,9 @@ class SettingsWindow:
         self.v_outlines.set(self.cfg.show_outlines)
         if self.v_badge.get() != self.cfg.loop_badge:
             self.v_badge.set(self.cfg.loop_badge)
+        if self.e.update_ready and not self.restart_btn.winfo_ismapped():
+            self.restart_btn.configure(text=f"Restart to update to {self.e.update_ready}")
+            self.restart_btn.pack(side="right", padx=(0, 8))
         if abs(self.v_badge_size.get() - self.cfg.badge_size) > 0.004:   # resized by scrolling in the preview
             self.v_badge_size.set(self.cfg.badge_size)
         if IS_MAC:
@@ -1993,39 +1998,3 @@ class Wizard:
             elif e.player is not None:
                 txt, col = "✓ You have a loop. Record more any time.", OK_TEXT
         self.status.configure(text=txt, foreground=col)
-
-
-def run_startup_update(rel, token: str) -> str | None:
-    """Small 'Updating...' window while the new version downloads. Returns the downloaded path."""
-    root = tk.Tk()
-    root.title("BRB")
-    root.resizable(False, False)
-    apply_theme(root)
-    f = ttk.Frame(root, padding=22)
-    f.pack()
-    logo = _photo(brand.asset("logo_dark.png"), 260)
-    tk.Label(f, image=logo, bg=MIDNIGHT).pack(anchor="w", pady=(0, 12))
-    ttk.Label(f, text=f"Updating to v{rel.version}...", style="Head.TLabel").pack(anchor="w")
-    bar = ttk.Progressbar(f, maximum=100, length=360, style="InSync.Horizontal.TProgressbar")
-    bar.pack(pady=(10, 0))
-    result: dict = {}
-
-    def work():
-        try:
-            result["path"] = updater.download(rel, token, lambda p: result.__setitem__("p", p))
-        except updater.UpdateError as ex:
-            result["err"] = str(ex)
-
-    t = threading.Thread(target=work, daemon=True)
-    t.start()
-
-    def poll():
-        bar["value"] = int(result.get("p", 0) * 100)
-        if t.is_alive():
-            root.after(100, poll)
-        else:
-            root.destroy()
-
-    root.after(100, poll)
-    root.mainloop()
-    return result.get("path")

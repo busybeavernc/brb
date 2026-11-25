@@ -39,6 +39,17 @@ if __name__ == "__main__":
         from doppleganger import camera_setup
         camera_setup.main(sys.argv)
         sys.exit(0)
+    if "--selftest" not in sys.argv:
+        # An update downloaded last time: install it now, before loading anything (the installer shows its own
+        # progress window and reopens BRB). Any problem: just open this version.
+        try:
+            from doppleganger import updater
+            ready = updater.pending()
+            if ready:
+                splash.close()
+                updater.apply_and_restart(ready[1])   # exits
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
     try:
         from doppleganger.app import main
         main()

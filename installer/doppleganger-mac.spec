@@ -24,7 +24,8 @@ if importlib.util.find_spec("mediapipe"):  # AI person detection (falls back to 
     hidden += h
 
 a = Analysis([os.path.join(ROOT, "launcher.py")], pathex=[ROOT], binaries=binaries, datas=datas,
-             hiddenimports=hidden, excludes=["pynput", "pystray"], noarchive=False)
+             hiddenimports=hidden, excludes=["pynput", "pystray", "matplotlib"], noarchive=False,
+             runtime_hooks=[os.path.join(ROOT, "installer", "rthook_no_matplotlib.py")])   # see the hook
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="BRB", console=False,
           argv_emulation=False, codesign_identity=None)

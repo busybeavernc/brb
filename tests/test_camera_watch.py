@@ -49,6 +49,7 @@ def make_engine(monkeypatch, cams, current, name="Logitech BRIO", lost=False):
     e._actions = queue.Queue()
     e.toast, e.toast_until = "", 0.0
     e.camera_problem, e.camera_unplugged, e.camera_alert = "", False, ""
+    e.starting = False
     monkeypatch.setattr(E.camera_users, "current", lambda: [])
     return e
 

@@ -170,40 +170,33 @@ class Engine:
     directly - they `request()` an action, which runs here between frames.
     """
 
-    def __init__(self, cfg: Config, vcam: bool, config_path: str, progress=None):
+    # Asked for while BRB is still starting up (webcam, AI and loop not ready yet): run them once it's ready.
+    WAIT_FOR_STARTUP = ("toggle", "cut_press", "cut_release", "record", "record_now", "calibrate", "use_loop:")
+
+    def __init__(self, cfg: Config, vcam: bool, config_path: str, progress=None, background_start: bool = True):
+        """Quick: the window can open straight away. The slow parts - opening the webcam, loading the AI model and
+        the loop - run on a background thread (start_up); until it's done, `starting` is True and the preview says
+        so. background_start=False does them here instead (tests, tools)."""
         say = progress or (lambda _text, _p=None: None)  # startup progress for the splash screen
         self.cfg = cfg
         self.config_path = config_path
-        say("Opening your webcam...", 0.5)
+        self.starting = True
+        self._deferred: list[str] = []
         self._cam_lock = threading.RLock()   # the camera watcher and camera switching take turns
-        self._cams: list[str] = [n for _, n in vcamlib.real_cameras()]
-        self._cams_at = time.monotonic()
+        self._cams: list[str] = []
+        self._cams_at = 0.0
         self.cameras_seq = 0                 # bumps when webcams are plugged in or removed (the window refreshes)
         self.camera_lost = False             # the webcam stopped delivering (unplugged, or taken by another app)
         self.camera_problem = ""             # while camera_lost: what's wrong and what to do (shown in the window)
         self.camera_unplugged = False
         self.camera_alert = ""               # set when the window should pop up camera_problem (once per episode)
         self._lost_since = 0.0
-        idx, self.camera_name = vcamlib.resolve_camera(cfg.camera_name, cfg.camera_index)
-        try:
-            self.camera = Camera(idx, cfg.width, cfg.height, cfg.fps)
-            if (cfg.camera_name, cfg.camera_index) != (self.camera_name, idx):
-                cfg.camera_name, cfg.camera_index = self.camera_name, idx
-                cfg.save(config_path)
-        except RuntimeError as e:   # no webcam plugged in (yet): start anyway; the watcher opens one when it appears
-            log.warning("No webcam at startup: %s", e)
-            self.camera = NoCamera()
-            self.camera_lost = True
-            self._lost_since = time.monotonic()
-            if not self._cams:
-                self.camera_name = cfg.camera_name or ""
+        self.camera = NoCamera()
+        self.camera_name = cfg.camera_name or ""
         say("Connecting the virtual camera...", 0.6)
         self.output = Output(cfg, vcam)
         self.recorder = Recorder(cfg)
-        say("Loading AI person detection...", 0.7)
-        self.seg = segment.get()              # AI person segmentation (None -> room calibration fallback)
-        say("Loading your loops...", 0.85)
-        self.recorder.segmenter = self.seg
+        self.seg = None                       # AI person segmentation (None -> room calibration fallback)
         self.mic = MicMuter()
         # LOOP time: free hour per computer or a license key, leased from brb.happyhacks.io
         self.lic = LicenseGate(cfg, lambda: cfg.save(config_path), updater.current_version())
@@ -224,6 +217,7 @@ class Engine:
         self._actions: queue.Queue[str] = queue.Queue()
         self._pending_update: str | None = None
         self._updating = False
+        self.update_ready = ""                    # version downloaded in the background, installs at next start
         self.view_toggles = 0                     # bumps on the view hotkey: the window switches Normal / Mini Bar
         self.calibrator: Calibrator | None = None
         self._record_after_calibration = False
@@ -239,13 +233,67 @@ class Engine:
         self._light_at = 0.0
         self._tracer: OutlineTracer | None = None
         self._tracer_bg = None
-        self._load_background()
-        path = self._initial_loop()
-        if path:
-            self._load_loop(path, announce=False)
+        self.background = None
         self._start_global_hotkeys()
         # Mac: no tray icon (pystray needs the main thread, which Tk owns); the Dock icon and window do the job.
         self._tray = None if macos.is_mac() else start_tray(self.request, updater.current_version(), self)
+        if background_start:
+            threading.Thread(target=self.start_up, daemon=True, name="start-up").start()
+        else:
+            self.start_up()
+            self._finish_start_up()
+
+    # ---------- start-up (background) ----------
+    def start_up(self) -> None:
+        """The slow part of opening BRB: list and open the webcam, load the AI model. Then the engine thread loads
+        the loop (_finish_start_up), which needs the AI. Never raises."""
+        t0 = time.monotonic()
+        try:
+            self._open_first_camera()
+        except Exception:  # noqa: BLE001
+            log.exception("start-up: webcam")
+        t1 = time.monotonic()
+        try:
+            self.seg = segment.get()
+            self.recorder.segmenter = self.seg
+        except Exception:  # noqa: BLE001
+            log.exception("start-up: AI")
+        log.info("Start-up: webcam %.1f s, AI %.1f s", t1 - t0, time.monotonic() - t1)
+        self.request("_started")
+
+    def _open_first_camera(self) -> None:
+        cfg = self.cfg
+        names = [n for _, n in vcamlib.real_cameras()]
+        with self._cam_lock:
+            self._cams, self._cams_at = names, time.monotonic()
+            idx, self.camera_name = vcamlib.resolve_camera(cfg.camera_name, cfg.camera_index)
+            try:
+                self.camera = Camera(idx, cfg.width, cfg.height, cfg.fps)
+                if (cfg.camera_name, cfg.camera_index) != (self.camera_name, idx):
+                    cfg.camera_name, cfg.camera_index = self.camera_name, idx
+                    cfg.save(self.config_path)
+            except RuntimeError as e:   # no webcam (yet): the watcher opens one when it appears
+                log.warning("No webcam at startup: %s", e)
+                self.camera = NoCamera()
+                self.camera_lost = True
+                self._lost_since = time.monotonic()
+                if not names:
+                    self.camera_name = cfg.camera_name or ""
+            self.cameras_seq += 1
+
+    def _finish_start_up(self) -> None:
+        """Engine thread: the webcam and AI are ready - load the calibration and the loop, then run what waited."""
+        self._load_background()
+        path = self._initial_loop()
+        if path:
+            try:
+                self._load_loop(path, announce=False)
+            except Exception:  # noqa: BLE001
+                log.exception("Couldn't load the loop %s", path)
+        self.starting = False
+        for a in self._deferred:
+            self.request(a)
+        self._deferred.clear()
 
     # ---------- requests from other threads ----------
     def request(self, action: str) -> None:
@@ -278,6 +326,8 @@ class Engine:
                 log.exception("camera watcher")
 
     def _watch_once(self) -> None:
+        if self.starting:   # start_up is opening the webcam
+            return
         names = [n for _, n in vcamlib.real_cameras()]
         listed = bool(names) or not vcamlib.is_windows()
         old = self._cams
@@ -731,6 +781,31 @@ class Engine:
         if self._record_after_calibration:
             self.recorder.start()
 
+    AUTO_UPDATE_AFTER = 20.0   # s after opening: well clear of start-up, so it never slows it
+
+    def _auto_update(self) -> None:
+        """Background: find and download a newer version (or the move to the folder install). Installs the next
+        time BRB opens - never in the middle of a meeting - or now via Settings > Restart to update."""
+        time.sleep(self.AUTO_UPDATE_AFTER)
+        if not (self.running and self.cfg.auto_update and updater.can_self_update()):
+            return
+        try:
+            ready = updater.pending()
+            if ready is None:
+                rel = updater.check(self.cfg.update_repo, self.cfg.update_token)
+                if rel is None:
+                    return
+                log.info("Downloading update v%s in the background", rel.version)
+                ready = (rel.version, updater.stage(rel, self.cfg.update_token))
+            self.update_ready, self._pending_update = ready
+            log.info("Update v%s ready: installs next time BRB opens", ready[0])
+            self.notify(f"BRB {ready[0]} is ready: it installs the next time you open BRB "
+                        "(or now: Settings > Restart to update).", 12)
+        except updater.UpdateError as e:
+            log.info("Background update check: %s", e)
+        except Exception:  # noqa: BLE001
+            log.exception("Background update check")
+
     def check_for_updates(self) -> None:
         """Manual check. Runs in the background; never blocks the camera."""
         if self._updating:
@@ -750,7 +825,9 @@ class Engine:
                 self.notify(f"Downloading v{rel.version}...", 600)
                 path = updater.download(rel, self.cfg.update_token,
                                         lambda p: self.notify(f"Downloading v{rel.version}... {int(p * 100)}%", 600))
-                self._pending_update = path
+                with open(path + ".ready", "w", encoding="utf-8") as f:
+                    f.write(rel.version)
+                self._pending_update, self.update_ready = path, rel.version
                 self.request("apply_update")
             except updater.UpdateError as e:
                 self.notify(f"Update check failed: {e}", 8)
@@ -764,6 +841,12 @@ class Engine:
         while not self._actions.empty():
             a = self._actions.get_nowait()
             arg = a.split(":", 1)[1] if ":" in a else ""
+            if a == "_started":
+                self._finish_start_up()
+                continue
+            if self.starting and a.startswith(self.WAIT_FOR_STARTUP):
+                self._deferred.append(a)   # nothing to cut to or record with yet: do it in a moment
+                continue
             if a == "toggle":
                 self.toggle()
             elif a == "cut_press":
@@ -832,23 +915,25 @@ class Engine:
         self.running = True
         frame_dt = 1.0 / self.cfg.fps
         next_t = time.monotonic()
-        live = None
-        first_by = time.monotonic() + 4
-        while live is None and self.running and time.monotonic() < first_by:
-            live = self.camera.latest()
-            time.sleep(0.01)
-        if live is None:   # no webcam (yet): a calm placeholder until one is plugged in
-            live = placeholder(self.cfg.width, self.cfg.height, "No webcam connected - plug one in")
+        live = self.camera.latest()
+        waiting_placeholder = live is None
+        if live is None:   # starting up: a calm placeholder until the webcam's first picture arrives
+            live = placeholder(self.cfg.width, self.cfg.height, "Starting your webcam...")
         self._last_live = live
         self._start_camera_watcher()
+        threading.Thread(target=self._auto_update, daemon=True, name="auto-update").start()
         self._out_thread = threading.Thread(target=self._send_to_meeting, daemon=True, name="meeting-output")
         self._out_thread.start()
         self._ticks, self._ticks_at = 0, time.monotonic()
         try:
             while self.running:
                 fresh = self.camera.latest()
+                self._showing_message = waiting_placeholder
                 if fresh is not None:
-                    live = fresh
+                    live, waiting_placeholder = fresh, False
+                elif waiting_placeholder and not self.starting and self.camera_lost:
+                    live, waiting_placeholder = placeholder(self.cfg.width, self.cfg.height,
+                                                            "No webcam connected - plug one in"), False
                 if self.calibrator is not None:
                     self._update_calibration(live)
                 self.recorder.update(live)
@@ -997,7 +1082,9 @@ class Engine:
         cfg = self.cfg
         recording = self.recorder.state in (State.COUNTDOWN, State.RECORDING)
         base = live if (recording or self.calibrator is not None) else out
-        prev = cv2.flip(base, 1) if cfg.mirror_preview else base
+        # a message instead of your picture (starting up / no webcam) isn't mirrored: it reads normally
+        message_only = getattr(self, "_showing_message", False) and self.mode == "live"
+        prev = cv2.flip(base, 1) if (cfg.mirror_preview and not message_only) else base
         w, h = self.preview_size
         prev = cv2.resize(prev, (max(2, w), max(2, h)), interpolation=cv2.INTER_AREA)
         if self.calibrator is not None:

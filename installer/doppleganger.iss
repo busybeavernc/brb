@@ -50,8 +50,12 @@ WelcomeLabel2=This installs [name/ver] on your computer.%n%nNeed a moment? BRB (
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 Name: "trustpublisher"; Description: "Trust this app's publisher certificate on this PC (removes the ""unknown publisher"" warning for BRB only; Windows will ask you to confirm)"; Flags: unchecked
 
+[InstallDelete]
+; the app's libraries, from the previous version: replaced as a whole, so nothing stale is left behind
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
-Source: "..\dist\{#MyAppExe}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\BRB\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "doppleganger-publisher.cer"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 

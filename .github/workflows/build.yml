@@ -6,7 +6,8 @@ name: Build
 #   - a push whose commit message contains [release]
 # A release builds BRB (formerly Doppleganger) and publishes vMAJOR.MINOR.<build #> with:
 #   BRBSetup.exe                Windows installer (Start menu, uninstall entry, removes the camera on uninstall)
-#   BRB.exe                     the Windows app itself (installed copies update themselves from this)
+#   BRB.exe                     the Windows app as one file (to run without installing; copies installed before
+#                               v0.1.98 update from it once, then switch to updating with BRBSetup.exe)
 #   doppleganger-publisher.cer  the public half of the self-signed code-signing certificate
 #   BRB-mac-arm64.dmg           Mac (Apple Silicon) - drag to Applications; uses OBS Virtual Camera
 #   BRB-mac-x86_64.dmg          Mac (Intel)
@@ -170,29 +171,55 @@ jobs:
       - name: Third-party notices
         run: python tools/third_party_notices.py THIRD-PARTY-NOTICES.txt
 
-      - name: Build BRB.exe
-        run: >
-          pyinstaller --noconfirm --onefile --windowed --name BRB
-          --icon doppleganger/assets/icon.ico
-          --splash doppleganger/assets/splash.png
-          --add-data "doppleganger/assets;doppleganger/assets"
-          --add-data "driver_build/brb_cam64.dll;driver"
-          --add-data "driver_build/brb_cam32.dll;driver"
-          --add-data "driver_build/listcams.exe;driver"
-          --add-data "driver_build/micmute.exe;driver"
-          --add-data "driver_build/SOFTCAM-LICENSE.txt;driver"
-          --add-data "THIRD-PARTY-NOTICES.txt;."
-          --collect-data cv2
-          --collect-all mediapipe
-          --hidden-import pynput.keyboard._win32
-          --hidden-import pynput.mouse._win32
-          --hidden-import pystray._win32
-          launcher.py
+      # Two builds of the same app:
+      #   dist/BRB/            a folder (BRB.exe + its libraries) - what the installer installs. Opens much faster than
+      #                        one self-extracting file: nothing is unpacked or virus-scanned again at each launch.
+      #   dist_onefile/BRB.exe a single self-extracting file - for copies installed before v0.1.98 (their updater
+      #                        swaps in BRB.exe, which then moves them to the installer), and to run without installing.
+      # matplotlib is left out: MediaPipe imports it only for plotting helpers BRB never uses (see the runtime hook).
+      - name: Build BRB
+        shell: pwsh
+        run: |
+          $common = @(
+            "--noconfirm", "--windowed", "--name", "BRB",
+            "--icon", "doppleganger/assets/icon.ico",
+            "--splash", "doppleganger/assets/splash.png",
+            "--add-data", "doppleganger/assets;doppleganger/assets",
+            "--add-data", "driver_build/brb_cam64.dll;driver",
+            "--add-data", "driver_build/brb_cam32.dll;driver",
+            "--add-data", "driver_build/listcams.exe;driver",
+            "--add-data", "driver_build/micmute.exe;driver",
+            "--add-data", "driver_build/SOFTCAM-LICENSE.txt;driver",
+            "--add-data", "THIRD-PARTY-NOTICES.txt;.",
+            "--collect-data", "cv2",
+            "--collect-all", "mediapipe",
+            "--exclude-module", "matplotlib",
+            "--runtime-hook", "installer/rthook_no_matplotlib.py",
+            "--hidden-import", "pynput.keyboard._win32",
+            "--hidden-import", "pynput.mouse._win32",
+            "--hidden-import", "pystray._win32"
+          )
+          pyinstaller @common --onefile --distpath dist_onefile --workpath build_onefile launcher.py
+          if ($LASTEXITCODE) { exit 1 }
+          pyinstaller @common --onedir launcher.py
+          if ($LASTEXITCODE) { exit 1 }
+          "{0:N0} MB  folder" -f ((Get-ChildItem dist\BRB -Recurse | Measure-Object Length -Sum).Sum / 1MB)
+          "{0:N0} MB  single file" -f ((Get-Item dist_onefile\BRB.exe).Length / 1MB)
+
+      - name: Self-test both builds
+        shell: pwsh
+        run: |
+          foreach ($exe in "dist\BRB\BRB.exe", "dist_onefile\BRB.exe") {
+            $s = [Diagnostics.Stopwatch]::StartNew()
+            $p = Start-Process $exe -ArgumentList "--selftest" -Wait -PassThru
+            "{0}: exit {1} in {2:N1} s" -f $exe, $p.ExitCode, $s.Elapsed.TotalSeconds
+            if ($p.ExitCode) { exit 1 }
+          }
 
       - name: Sign BRB.exe
         if: env.SIGN_PFX != ''
         shell: cmd
-        run: signtool sign /q /fd SHA256 /f "%SIGN_FILE%" /p "%SIGN_PASSWORD%" /tr http://timestamp.digicert.com /td SHA256 /d "BRB" dist\BRB.exe
+        run: signtool sign /q /fd SHA256 /f "%SIGN_FILE%" /p "%SIGN_PASSWORD%" /tr http://timestamp.digicert.com /td SHA256 /d "BRB" dist\BRB\BRB.exe dist_onefile\BRB.exe
 
       - name: Build installer
         shell: pwsh
@@ -216,7 +243,7 @@ jobs:
         with:
           name: windows
           path: |
-            dist/BRB.exe
+            dist_onefile/BRB.exe
             dist/BRBSetup.exe
 
   mac:
@@ -337,10 +364,9 @@ jobs:
           **Windows:** BRBSetup.exe. **Mac:** BRB-mac-arm64.dmg (Apple Silicon) or BRB-mac-x86_64.dmg (Intel) when this release includes them (otherwise the download page offers the latest Mac version); needs [OBS Studio](https://obsproject.com/download) 30+.
 
           $(git log -1 --pretty=%s)"
-          # Doppleganger.exe: the same app under its old name, so copies installed before the rename to BRB update
-          # themselves (their updater looks for that file name)
-          cp artifacts/BRB.exe artifacts/Doppleganger.exe
-          files="artifacts/BRBSetup.exe artifacts/BRB.exe artifacts/Doppleganger.exe installer/doppleganger-publisher.cer
+          # BRB.exe: the single-file app, for copies installed before v0.1.98 (their updater swaps it in, and it then
+          # moves them to the installer) and to run without installing. Installed copies now update with BRBSetup.exe.
+          files="artifacts/BRBSetup.exe artifacts/BRB.exe installer/doppleganger-publisher.cer
             artifacts/BRBSetup.exe.sigstore.json artifacts/BRB.exe.sigstore.json"
           gh release create "v$v" $files --title "BRB $v" --notes "$notes" --target "$GITHUB_SHA" --latest
           if [ -n "$PUBLIC_TOKEN" ]; then

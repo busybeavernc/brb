@@ -48,9 +48,8 @@ def main() -> None:
         cfg.loop_seconds = args.seconds
     if not os.path.exists(args.config):
         cfg.save(args.config)
-    if cfg.auto_update and updater.can_self_update():
-        splash.status("Checking for updates...", 0.2)
-        startup_update(cfg)
+    # Updates: checked and downloaded in the background once the window is open (Engine.auto_update), installed
+    # the next time BRB opens (launcher.py).
 
     import sys
     if sys.platform == "darwin":
@@ -139,19 +138,3 @@ def selftest() -> int:
     print("SELFTEST", "FAILED: " + ", ".join(problems) if problems else "OK", flush=True)
     return 1 if problems else 0
 
-
-def startup_update(cfg: Config) -> None:
-    """On launch: if a newer release exists, download it with a small progress window and restart.
-    Any problem (offline, GitHub down) just skips the update and opens the app normally."""
-    try:
-        rel = updater.check(cfg.update_repo, cfg.update_token, timeout=4)
-    except updater.UpdateError as e:
-        log.info("Update check skipped: %s", e)
-        return
-    if rel is None:
-        return
-    splash.close()  # the "Updating..." window takes over
-    from .ui import run_startup_update
-    path = run_startup_update(rel, cfg.update_token)
-    if path:
-        updater.apply_and_restart(path)

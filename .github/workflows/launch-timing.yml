@@ -14,6 +14,9 @@ on:
       runs:
         description: "Launches to time"
         default: "5"
+      upgrade_from:
+        description: "Optional: install this older release first, then the one above over it (checks the upgrade)"
+        default: ""
 
 permissions:
   contents: read
@@ -33,6 +36,17 @@ jobs:
           gh release download $tag -R busybeavernc/brb-public -p BRBSetup.exe -p BRB.exe -D dl
           Get-ChildItem dl | Format-Table Name, Length
 
+      - name: Install the older release first
+        if: inputs.upgrade_from != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ inputs.upgrade_from }}" -R busybeavernc/brb-public -p BRBSetup.exe -D old
+          $p = Start-Process old\BRBSetup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/NOICONS','/TASKS=""' -Wait -PassThru
+          "older installer exit code: $($p.ExitCode)"
+          Get-ChildItem "$env:LOCALAPPDATA\Programs\BRB" | Format-Table Name, Length
+
       - name: Install it
         shell: pwsh
         run: |
@@ -42,6 +56,9 @@ jobs:
           if (-not (Test-Path $exe)) { Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Depth 2 | Select-Object -First 30 | Format-Table FullName; exit 1 }
           "EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append
           Get-ChildItem (Split-Path $exe) | Format-Table Name, Length
+          $lib = Join-Path (Split-Path $exe) "_internal"
+          if (Test-Path $lib) { "folder install: {0:N0} files, {1:N0} MB" -f (Get-ChildItem $lib -Recurse -File).Count, ((Get-ChildItem $lib -Recurse -File | Measure-Object Length -Sum).Sum / 1MB) }
+          else { "single-file install" }
 
       - name: Time launches
         shell: pwsh
