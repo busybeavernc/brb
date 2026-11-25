@@ -237,6 +237,7 @@ class Engine:
         self.tips_pending = False        # recording tips are showing; Start begins the recording
         self.ui_attached = False         # a window is open that can show the tips
         self.preview_size = (960, 540)            # set by the window
+        self.compact_preview = False              # Mini Bar: the preview is a thumbnail
         self.badge_preview_rect = None            # where the watermark is in the preview (for dragging it)
         self.preview_rgb: np.ndarray | None = None
         self.library_version = 0                  # bumps when loops change, so the window refreshes
@@ -778,8 +779,9 @@ class Engine:
             self.notify("Outlines need a calibration for this webcam - see Settings.", 6)
 
     def _draw_face_guide(self, prev: np.ndarray) -> None:
-        """Before cutting to the loop: the loop's eyes, nose and mouth, and yours, with a hint to line them up."""
-        if not (self.cfg.show_face_guide and self.mode == "live" and self.face_target is not None):
+        """The loop's eyes, nose and mouth, and yours, with a hint to line them up - LIVE (before cutting to the loop)
+        and on the LOOP (before coming back). Not in the Mini Bar: too small to read there."""
+        if not (self.cfg.show_face_guide and self.face_target is not None) or self.compact_preview:
             return
         al, target, live = self.face_alignment, self.face_target, self.face_live
         guides.draw_face_guide(prev, target.points(), live.points() if live is not None else None,
@@ -1149,7 +1151,7 @@ class Engine:
         if target_src is None:
             return
         self.face_target = finder.find(target_src)
-        self.face_live = finder.find(live) if self.mode == "live" else None
+        self.face_live = finder.find(live)
         if self.face_target is not None and self.face_live is not None:
             h, w = live.shape[:2]
             self.face_alignment = facekeys.align(self.face_target, self.face_live, w / h, self.cfg.mirror_preview)

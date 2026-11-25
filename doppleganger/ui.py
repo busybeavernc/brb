@@ -1901,11 +1901,13 @@ class MiniBar:
     def show(self) -> None:
         self.win.deiconify()
         self.visible = True
+        self.e.compact_preview = True       # the picture is a thumbnail: leave out the face guide (too small to read)
         self.win.after(150, self.main.apply_capture_setting)
 
     def hide(self) -> None:
         self.win.withdraw()
         self.visible = False
+        self.e.compact_preview = False
 
     def refresh(self, rgb) -> None:
         e = self.e
