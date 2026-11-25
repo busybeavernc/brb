@@ -31,7 +31,7 @@ from . import device, ed25519
 log = logging.getLogger("doppleganger")
 
 SERVER = "https://brb.happyhacks.io"
-# The site's license-signing public keys (https://brb.happyhacks.io/.well-known/brb-license-key). More than one
+# The site's license-signing public keys (https://brb.happyhacks.io/api/v1/license/public-key). More than one
 # while a key is being replaced. Empty = don't require signatures (only until the site's key is published).
 PUBLIC_KEYS: list[str] = []
 STATUS_EVERY = 300.0    # recheck the license this often (s)
