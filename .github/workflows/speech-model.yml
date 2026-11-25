@@ -1,0 +1,54 @@
+name: Publish speech model
+
+# Manual, rarely: packages the speech model BRB downloads the first time someone turns on Name alerts
+# (Moonshine tiny, English, MIT licence - via sherpa-onnx) and publishes it to busybeavernc/brb-public as a
+# PRERELEASE that is never "latest", so neither the app's updater nor the website treats it as a BRB version.
+# The app checks the download against the sha256 printed at the end (namealert.SPEECH_SHA256).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag for the model"
+        default: speech-models-1
+
+permissions:
+  contents: read
+
+env:
+  PUBLIC_REPO: busybeavernc/brb-public
+  PUBLIC_TOKEN: ${{ secrets.PUBLIC_RELEASES_TOKEN }}
+  SRC: https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Package
+        run: |
+          curl -sSLf -o src.tar.bz2 "$SRC"
+          tar xjf src.tar.bz2
+          d=sherpa-onnx-moonshine-tiny-en-int8
+          mkdir brb-speech-en-1
+          cp $d/preprocess.onnx $d/encode.int8.onnx $d/uncached_decode.int8.onnx $d/cached_decode.int8.onnx \
+             $d/tokens.txt $d/LICENSE $d/README.md brb-speech-en-1/
+          python3 - <<'EOF'
+          import os, zipfile
+          with zipfile.ZipFile("brb-speech-en-1.zip", "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+              for f in sorted(os.listdir("brb-speech-en-1")):
+                  z.write("brb-speech-en-1/" + f)
+          EOF
+          ls -la brb-speech-en-1 brb-speech-en-1.zip
+
+      - name: Publish (prerelease, not latest)
+        run: |
+          test -n "$PUBLIC_TOKEN" || { echo "::error::PUBLIC_RELEASES_TOKEN not set"; exit 1; }
+          sum=$(sha256sum brb-speech-en-1.zip | cut -d' ' -f1)
+          export GH_TOKEN="$PUBLIC_TOKEN"
+          if gh release view "${{ inputs.tag }}" -R "$PUBLIC_REPO" >/dev/null 2>&1; then
+            gh release upload "${{ inputs.tag }}" brb-speech-en-1.zip --clobber -R "$PUBLIC_REPO"
+          else
+            gh release create "${{ inputs.tag }}" brb-speech-en-1.zip -R "$PUBLIC_REPO" --prerelease --latest=false \
+              --title "Speech model for name alerts (not an app release)" \
+              --notes "Downloaded by BRB the first time you turn on Name alerts. Moonshine tiny (English) by Useful Sensors, MIT licence, as int8 ONNX for sherpa-onnx. sha256 $sum"
+          fi
+          echo "SHA256=$sum" | tee -a "$GITHUB_STEP_SUMMARY"
