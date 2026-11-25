@@ -54,7 +54,8 @@ jobs:
               ForEach-Object { "{0}({1}) <- {2}" -f $_.Name, $_.ProcessId, $_.ParentProcessId }
             $lib = Test-Path "$env:APP\_internal"
             "t+${i}s  _internal=$lib  " + ($procs -join ", ")
-            if ($lib -and -not ($procs -match 'Setup')) { break }
+            $done = (Get-Content "$env:APPDATA\BRB\brb-update.log" -ErrorAction SilentlyContinue) -match 'reopened'
+            if ($done -and -not ($procs -match 'Setup')) { break }
           }
           "--- install folder"; Get-ChildItem $env:APP | Format-Table Name, Length
           "--- updates folder"; Get-ChildItem "$env:APPDATA\BRB\updates" -ErrorAction SilentlyContinue | Format-Table Name, Length
@@ -62,4 +63,6 @@ jobs:
           "--- brb.log"; Get-Content "$env:APPDATA\BRB\brb.log" -ErrorAction SilentlyContinue
           "--- brb-error.log"; Get-Content "$env:APPDATA\BRB\brb-error.log" -ErrorAction SilentlyContinue
           "--- update log"; Get-Content "$env:APPDATA\BRB\brb-update.log" -ErrorAction SilentlyContinue
+          if (-not ((Get-Content "$env:APPDATA\BRB\brb-update.log" -ErrorAction SilentlyContinue) -match 'reopened')) {
+            "::error::the update didn't finish"; exit 1 }
           "--- installer log"; Get-Content "$env:APPDATA\BRB\brb-install.log" -Tail 40 -ErrorAction SilentlyContinue
