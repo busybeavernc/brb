@@ -15,6 +15,7 @@ Updates are found and downloaded in the background (stage()), and installed the 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
@@ -26,6 +27,8 @@ from dataclasses import dataclass
 from typing import Callable
 
 from . import __version__
+
+log = logging.getLogger("doppleganger")
 
 ASSET_NAME = "BRB.exe"           # the single-file app (not installed)
 SETUP_NAME = "BRBSetup.exe"      # the installer (installed copies)
@@ -163,8 +166,33 @@ def download(release: Release, token: str = "",
 
 
 # ---------- staged updates: downloaded in the background, installed at the next start ----------
+MAX_TRIES = 2   # starts that tried to install the same download; then BRB stops trying it and just opens
+
+
+def note_attempt(path: str) -> None:
+    try:
+        n = int(open(path + ".tries", encoding="utf-8").read().strip() or 0)
+    except (OSError, ValueError):
+        n = 0
+    try:
+        with open(path + ".tries", "w", encoding="utf-8") as f:
+            f.write(str(n + 1))
+    except OSError:
+        pass
+
+
+def attempts(path: str) -> int:
+    try:
+        return int(open(path + ".tries", encoding="utf-8").read().strip() or 0)
+    except (OSError, ValueError):
+        return 0
+
 def stage(release: Release, token: str = "") -> str:
     """Download `release` and mark it ready (a .ready file written last, so a half download is never used)."""
+    dest = os.path.join(updates_dir(), f"{release.version}-{asset_name()}")
+    if attempts(dest) >= MAX_TRIES:
+        raise UpdateError(f"BRB couldn't install {release.version} by itself. Download it from brb.happyhacks.io "
+                          "and run it - your loops and settings stay.")
     path = download(release, token)
     with open(path + ".ready", "w", encoding="utf-8") as f:
         f.write(release.version)
@@ -184,16 +212,18 @@ def pending() -> tuple[str, str] | None:
     mine = parse_version(current_version())
     for n in names:
         path = os.path.join(updates_dir(), n)
-        if n.endswith(".ready"):
+        if n.endswith((".ready", ".tries")):
             continue
         version = n.split("-", 1)[0]
-        ok = os.path.exists(path + ".ready") and n.endswith("-" + asset_name())
+        ok = (os.path.exists(path + ".ready") and n.endswith("-" + asset_name())
+              and attempts(path) < MAX_TRIES)   # tried twice already and still here: it isn't working - don't loop
         usable = ok and (parse_version(version) > mine or (needs_move_to_folder() and parse_version(version) >= mine))
         if usable and (best is None or parse_version(version) > parse_version(best[0])):
             best = (version, path)
-    for n in names:   # tidy up: anything not the one we'll use
+    for n in names:   # tidy up: anything not the one we'll use (but remember downloads that failed to install)
         path = os.path.join(updates_dir(), n)
-        keep = best and (path == best[1] or path == best[1] + ".ready")
+        keep = best and path in (best[1], best[1] + ".ready", best[1] + ".tries")
+        keep = keep or (n.endswith(".tries") and attempts(path[:-6]) >= MAX_TRIES)
         if not keep:
             try:
                 os.remove(path)
@@ -233,6 +263,7 @@ def apply_and_restart(new_exe: str) -> None:
     if new_exe.lower().endswith(SETUP_NAME.lower()):
         _run_installer_after_exit(new_exe, exe)
         os._exit(0)
+    note_attempt(new_exe)
     script = os.path.join(tempfile.gettempdir(), "brb_update.bat")
     with open(script, "w", encoding="utf-8") as f:
         f.write(f"""@echo off
@@ -244,21 +275,65 @@ move /y "{new_exe}" "{exe}" >nul 2>&1 || (if %tries% lss 30 goto wait)
 start "" "{exe}"
 del "%~f0"
 """)
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
-    subprocess.Popen(["cmd", "/c", script], creationflags=flags, close_fds=True, env=clean_environment())
+    start_detached(["cmd", "/c", script])
     os._exit(0)
+
+
+CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+
+
+def start_detached(cmd: list[str]) -> None:
+    """Start the update script so that it outlives BRB.
+
+    A single-file BRB runs inside a Windows job that ends everything it started when BRB closes - including this
+    script, before it can do anything. So: ask to leave the job; if the job doesn't allow that, have Windows itself
+    start the script (WMI); only then start it plainly."""
+    env = clean_environment()
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+    try:
+        subprocess.Popen(cmd, creationflags=flags | CREATE_BREAKAWAY_FROM_JOB, close_fds=True, env=env)
+        log.info("Update script started (left the job)")
+        return
+    except OSError as e:
+        log.info("Couldn't leave the job (%s); starting the script through Windows", e)
+    line = subprocess.list2cmdline(cmd).replace("'", "''")
+    ps = ("$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
+          f"-Arguments @{{CommandLine='{line}'}}; exit $r.ReturnValue")
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], env=env,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=30)
+        if r.returncode == 0:
+            log.info("Update script started through Windows")
+            return
+        log.warning("Windows didn't start the update script (%s)", r.returncode)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Couldn't start the update script through Windows: %s", e)
+    subprocess.Popen(cmd, creationflags=flags, close_fds=True, env=env)
 
 
 def installer_script(setup: str, exe: str, pid: int) -> str:
     """Batch file: wait for BRB (pid) to close, run the installer with a progress window and no questions (it
     installs over this copy, in the same folder), then open BRB again. The used installer is deleted."""
     args = " ".join(SILENT_ARGS)
+    folder = os.path.dirname(os.path.dirname(setup))          # BRB's data folder (the updates folder's parent)
+    log_file = os.path.join(folder, "brb-update.log")
+    install_log = os.path.join(folder, "brb-install.log")
     return f"""@echo off
+echo %date% %time% waiting for BRB ({pid}) to close>"{log_file}"
+set tries=0
 :wait
-tasklist /fi "PID eq {pid}" 2>nul | find "{pid}" >nul && (timeout /t 1 /nobreak >nul & goto wait)
-"{setup}" {args}
-del "{setup}" "{setup}.ready" >nul 2>&1
+set /a tries+=1
+tasklist /fi "PID eq {pid}" 2>nul | find "{pid}" >nul || goto closed
+if %tries% geq 60 goto closed
+ping -n 2 127.0.0.1 >nul
+goto wait
+:closed
+echo %date% %time% installing>>"{log_file}"
+"{setup}" {args} /LOG="{install_log}"
+echo %date% %time% installer finished: %errorlevel%>>"{log_file}"
+del "{setup}" "{setup}.ready" "{setup}.tries" >nul 2>&1
 start "" "{exe}"
+echo %date% %time% BRB reopened>>"{log_file}"
 del "%~f0"
 """
 
@@ -267,8 +342,8 @@ def _run_installer_after_exit(setup: str, exe: str) -> None:
     script = os.path.join(tempfile.gettempdir(), "brb_update.bat")
     with open(script, "w", encoding="utf-8") as f:
         f.write(installer_script(setup, exe, os.getpid()))
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
-    subprocess.Popen(["cmd", "/c", script], creationflags=flags, close_fds=True, env=clean_environment())
+    note_attempt(setup)
+    start_detached(["cmd", "/c", script])
 
 
 def clean_environment() -> dict[str, str]:

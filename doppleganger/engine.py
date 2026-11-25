@@ -803,6 +803,8 @@ class Engine:
                         "(or now: Settings > Restart to update).", 12)
         except updater.UpdateError as e:
             log.info("Background update check: %s", e)
+            if "couldn't install" in str(e):
+                self.notify(str(e), 20)
         except Exception:  # noqa: BLE001
             log.exception("Background update check")
 

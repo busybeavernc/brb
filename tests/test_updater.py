@@ -143,6 +143,46 @@ def test_nothing_pending(monkeypatch, tmp_path):
 def test_installer_script_waits_installs_quietly_and_reopens():
     bat = updater.installer_script(r"C:\u\0.1.99-BRBSetup.exe", r"C:\p\BRB\BRB.exe", 4242)
     assert 'PID eq 4242' in bat
-    assert r'"C:\u\0.1.99-BRBSetup.exe" /SILENT /SUPPRESSMSGBOXES /NORESTART /SP- /NOCANCEL' in bat
+    assert r'"C:\u\0.1.99-BRBSetup.exe" /SILENT /SUPPRESSMSGBOXES /NORESTART /SP- /NOCANCEL /LOG=' in bat
     assert r'start "" "C:\p\BRB\BRB.exe"' in bat
     assert bat.index("/SILENT") < bat.index('start ""')
+
+
+def test_a_download_that_wont_install_is_not_retried_forever(monkeypatch, tmp_path):
+    _as_windows(monkeypatch, tmp_path)
+    _put(tmp_path, "0.1.99-BRBSetup.exe")
+    path = str(tmp_path / "0.1.99-BRBSetup.exe")
+    assert updater.pending()[1] == path
+    updater.note_attempt(path)
+    assert updater.pending()[1] == path                 # one more try
+    updater.note_attempt(path)
+    assert updater.pending() is None                    # tried twice: BRB just opens
+    assert (tmp_path / "0.1.99-BRBSetup.exe.tries").exists()   # and remembers, so it isn't downloaded again
+    rel = updater.Release("0.1.99", "url", "")
+    with pytest.raises(updater.UpdateError, match="Download it from brb.happyhacks.io"):
+        updater.stage(rel)
+
+
+def test_update_script_leaves_brbs_job(monkeypatch):
+    calls = []
+
+    class P:
+        def __init__(self, cmd, **kw):
+            calls.append(kw.get("creationflags", 0))
+    monkeypatch.setattr(updater.subprocess, "Popen", P)
+    updater.start_detached(["cmd", "/c", "x.bat"])
+    assert calls and calls[0] & updater.CREATE_BREAKAWAY_FROM_JOB
+
+
+def test_falls_back_to_windows_starting_it(monkeypatch):
+    runs = []
+
+    def popen(cmd, **kw):
+        raise OSError(5, "Access is denied")       # the job doesn't allow leaving it
+
+    class R:
+        returncode = 0
+    monkeypatch.setattr(updater.subprocess, "Popen", popen)
+    monkeypatch.setattr(updater.subprocess, "run", lambda cmd, **kw: runs.append(cmd) or R())
+    updater.start_detached(["cmd", "/c", r"C:\t\it's.bat"])
+    assert runs and "Win32_Process" in runs[0][-1] and "it''s.bat" in runs[0][-1]
