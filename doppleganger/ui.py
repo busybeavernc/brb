@@ -618,7 +618,7 @@ class MainWindow:
                 if th is not None:
                     self._thumbs[li.path] = ImageTk.PhotoImage(Image.fromarray(cv2.cvtColor(th, cv2.COLOR_BGR2RGB)))
             active = li.path == self.e.loop_path
-            warn = library.lighting_warning(li.lighting, self.e.live_light)
+            warn = library.lighting_warning(li.lighting, self.e.live_light, matched=self.cfg.match_lighting)
             details = [f"{int(li.seconds)} s"] + (["in use"] if active else [])
             if warn:
                 details.append(f"⚠ {library.lighting_short(warn)}")
@@ -1385,6 +1385,12 @@ class SettingsWindow:
         self.v_guides = tk.BooleanVar(value=self.cfg.show_guides)
         Toggle(f, text="Soft 0.3 s crossfade on cuts (off = hard cut)", variable=self.v_fade,
                         command=self._changed).grid(sticky="w")
+        self.v_match = tk.BooleanVar(value=self.cfg.match_lighting)
+        Toggle(f, text="Match the loop to the room's lighting", variable=self.v_match,
+               command=self._changed).grid(sticky="w")
+        ttk.Label(f, text="Adjusts the loop's brightness and colour to how your room looks now (your live picture "
+                          "is never changed), so a cut doesn't jump if the light has changed since you recorded it.",
+                  style="Small.TLabel", wraplength=px(420), justify="left").grid(sticky="w", padx=(44, 0))
         Toggle(f, text="Show alignment guides in the preview (G)", variable=self.v_guides,
                         command=self._changed).grid(sticky="w")
         self.v_outlines = tk.BooleanVar(value=self.cfg.show_outlines)
@@ -1488,6 +1494,7 @@ class SettingsWindow:
         c.show_outlines = self.v_outlines.get()
         c.show_record_tips = self.v_tips.get()
         c.crossfade_ms = 300 if self.v_fade.get() else 0
+        c.match_lighting = self.v_match.get()
         c.overlay_opacity = round(float(self.v_opacity.get()), 2)
         c.save(self.e.config_path)
         if mute_changed:

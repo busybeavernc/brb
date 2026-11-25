@@ -107,24 +107,29 @@ def thumbnail(path: str, width: int = 112) -> np.ndarray | None:
     return img
 
 
-def lighting_warning(loop_light, live_light) -> str | None:
-    """Plain-language warning when the room's light no longer matches the loop."""
+def lighting_warning(loop_light, live_light, matched: bool = False) -> str | None:
+    """Plain-language warning when the room's light no longer matches the loop. `matched`: BRB adjusts the loop
+    to the room's light, so only differences too big for that are worth a warning."""
     if loop_light is None or live_light is None:
         return None
     dl = live_light[0] - loop_light[0]
     dc = float(np.hypot(live_light[1] - loop_light[1], live_light[2] - loop_light[2]))
-    if dl < -14:
-        return "Room is darker than this loop"
-    if dl > 14:
-        return "Room is brighter than this loop"
-    if dc > 7:
-        return "Light colour differs from this loop"
+    big, tint = (45, 16) if matched else (14, 7)
+    if dl < -big:
+        return "Room is much darker than this loop" if matched else "Room is darker than this loop"
+    if dl > big:
+        return "Room is much brighter than this loop" if matched else "Room is brighter than this loop"
+    if dc > tint:
+        return "Light colour differs a lot from this loop" if matched else "Light colour differs from this loop"
     return None
 
 
 SHORT = {"Room is darker than this loop": "darker room",
          "Room is brighter than this loop": "brighter room",
-         "Light colour differs from this loop": "different light"}
+         "Light colour differs from this loop": "different light",
+         "Room is much darker than this loop": "much darker room",
+         "Room is much brighter than this loop": "much brighter room",
+         "Light colour differs a lot from this loop": "very different light"}
 
 
 def lighting_short(warning: str | None) -> str | None:

@@ -31,6 +31,7 @@ class Config:
 
     # Live <-> loop switching
     crossfade_ms: int = 0               # 0 = hard cut (default)
+    match_lighting: bool = True         # adjust the loop's brightness/colour to the room's light now (lightmatch.py)
     overlay_opacity: float = 0.35       # preview: see-through strength of the off-air feed
     hotkey: str = "<f9>"                # global hotkey (works while Zoom is focused)
     view_hotkey: str = "<f10>"          # global: switch between the full window and the Mini Bar

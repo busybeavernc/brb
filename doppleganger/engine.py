@@ -14,7 +14,7 @@ import numpy as np
 from . import guides, library, updater
 from . import vcam as vcamlib
 from .calibrate import Calibrator
-from . import camera_users
+from . import camera_users, lightmatch
 from .camera import Camera, NoCamera, placeholder
 from .config import Config
 from .cutcontrol import SYNC_THRESHOLD, CutController
@@ -208,6 +208,7 @@ class Engine:
         self.loop_path: str | None = None
         self.loop_light = None
         self.live_light = None
+        self.light = lightmatch.LightMatch()   # the loop, adjusted to the room's light now
         self.loop_sil: Silhouette | None = None
         self.loop_matcher: guides.PoseMatcher | None = None
         self.loop_running = False   # becomes True on the first cut to the loop
@@ -529,6 +530,7 @@ class Engine:
         self.loop_running = False
         self.sync = 0.0
         self.loop_light = library.info(path).lighting
+        self.light.reset()
         # Start-pose silhouette + matcher, so LIVE preview shows when a cut to the loop will be invisible.
         self.loop_sil = Silhouette.load(path + ".mask.png") if os.path.exists(path + ".mask.png") else None
         self.loop_matcher = None
@@ -949,7 +951,8 @@ class Engine:
                 # Once activated, the loop runs on (by the clock) whether or not it's on air. What the meeting
                 # sees is sent by the steady output thread (_send_to_meeting); this loop does the heavy work.
                 self._last_live = live
-                loop_frame = self.player.frame_now() if (self.loop_running and self.player) else None
+                raw_loop = self.player.frame_now() if (self.loop_running and self.player) else None
+                loop_frame = self.lit(raw_loop)
                 out = self._compose(live, loop_frame, fade=False)
 
                 self._license_tick()
@@ -959,6 +962,10 @@ class Engine:
                 now = time.monotonic()
                 if now - self._light_at > 1.0:
                     self.live_light, self._light_at = library.lighting_of(live), now
+                    if self.player is not None and not waiting_placeholder:
+                        src = raw_loop if raw_loop is not None else self.player.first_frame
+                        keep = lightmatch.background_mask(self.loop_sil.weight_small if self.loop_sil else None)
+                        self.light.measure(src, live, keep)
                 self.preview_rgb = self.render_preview(out, live, loop_frame)
 
                 if not self._handle_actions():
@@ -994,7 +1001,7 @@ class Engine:
                     live = self._last_live
                 player = self.player
                 loop_frame = player.frame_for_output() if (self.loop_running and player is not None) else None
-                frame = self._compose(live, loop_frame)
+                frame = self._compose(live, self.lit(loop_frame))
                 if self.cfg.loop_badge and self.mode == "loop":
                     frame = self.stamp_badge(frame)   # what the meeting sees
                 self.output.send(frame)
@@ -1038,8 +1045,14 @@ class Engine:
         diff = guides.frame_diff(guides.small_gray(live), guides.small_gray(target), weight)
         self.sync = 0.7 * self.sync + 0.3 * max(0.0, 1.0 - diff / 35.0)
 
+    def lit(self, loop_frame: np.ndarray | None) -> np.ndarray | None:
+        """A loop frame as the meeting should see it: matched to the room's light (if that's on)."""
+        return self.light.apply(loop_frame) if self.cfg.match_lighting else loop_frame
+
     @property
     def lighting_warning(self) -> str | None:
+        if self.cfg.match_lighting and self.light.loop_mean is not None:
+            return self.light.warning()   # only what the adjustment can't make up for
         return library.lighting_warning(self.loop_light, self.live_light)
 
     # ---------- preview (drawn at the window's size, RGB for the window) ----------
@@ -1104,7 +1117,7 @@ class Engine:
             # Before the first cut (a loop just chosen, or BRB just opened): the loop starts from its first frame when
             # you cut, so that's the faded picture to line up with, plus the start-pose outlines.
             if self.player is not None and self.player.first_frame is not None:
-                prev = self._draw_offair_overlay(prev, self.player.first_frame, "loop (start pose)")
+                prev = self._draw_offair_overlay(prev, self.lit(self.player.first_frame), "loop (start pose)")
             elif glow_amount(self.sync) >= 0.99:
                 guides.put_text(prev, "In start pose - cut is seamless", (12, 34), 0.7, brand.CV_AQUA)
             self._draw_outlines(prev, live, self.player.first_frame if self.player else None)
