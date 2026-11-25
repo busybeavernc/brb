@@ -1531,7 +1531,7 @@ class SettingsWindow:
     def _voice_sample(self) -> None:
         self.cfg.voice_profile = self.v_profile.get()
         was, self.cfg.voice_guidance = self.cfg.voice_guidance, True
-        self.e.voice.say("rec_intro")
+        self.e.voice.say("rec_relax")
         self.cfg.voice_guidance = was
 
     def _badge_changed(self) -> None:
