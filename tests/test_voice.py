@@ -1,5 +1,6 @@
 """Spoken guidance: which moments are announced during a recording, and how voices are found."""
 import json
+import os
 
 import numpy as np
 
@@ -65,9 +66,9 @@ def test_profiles_and_default(tmp_path, monkeypatch):
 
 def test_missing_files_are_skipped_and_unknown_voice_falls_back(tmp_path, monkeypatch):
     _voices(tmp_path, monkeypatch, default="Jenny")
-    assert voice.sound_path("count_3", "Jenny").endswith("Jenny/count_3.mp3")
+    assert voice.sound_path("count_3", "Jenny").endswith(os.path.join("Jenny", "count_3.mp3"))
     assert voice.sound_path("count_3", "Mark") is None              # Mark doesn't have it: silence
-    assert voice.sound_path("rec_intro", "Nobody").endswith("Jenny/rec_intro.mp3")
+    assert voice.sound_path("rec_intro", "Nobody").endswith(os.path.join("Jenny", "rec_intro.mp3"))
 
 
 def test_off_means_silent(tmp_path, monkeypatch):
