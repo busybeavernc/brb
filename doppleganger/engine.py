@@ -238,6 +238,7 @@ class Engine:
         self.ui_attached = False         # a window is open that can show the tips
         self.preview_size = (960, 540)            # set by the window
         self.compact_preview = False              # Mini Bar: the preview is a thumbnail
+        self.rehearse_at: float | None = None     # Rehearse cut: when it started (preview only, nothing goes on air)
         self.badge_preview_rect = None            # where the watermark is in the preview (for dragging it)
         self.preview_rgb: np.ndarray | None = None
         self.library_version = 0                  # bumps when loops change, so the window refreshes
@@ -930,6 +931,14 @@ class Engine:
                 self.cancel()
             elif a == "outlines":
                 self.toggle_outlines()
+            elif a == "rehearse":
+                self.start_rehearsal()
+            elif a == "preview_room":
+                self.cfg.preview_room = not self.cfg.preview_room
+                self.cfg.save(self.config_path)
+                if not self.cfg.preview_room and self.seg is None:
+                    self.notify("Hiding the background needs person detection, which isn't available on this "
+                                "computer.", 8)
             elif a == "face_guide":
                 self.cfg.show_face_guide = not self.cfg.show_face_guide
                 self.cfg.save(self.config_path)
@@ -1197,12 +1206,37 @@ class Engine:
         return library.lighting_warning(self.loop_light, self.live_light)
 
     # ---------- preview (drawn at the window's size, RGB for the window) ----------
+    ROOM_BACKDROP = (58, 52, 48)      # BGR: a quiet dark grey behind you when the preview hides the room
+
+    def _hide_room(self, img: np.ndarray, key: str = "base") -> np.ndarray:
+        """Preview only: keep the person, replace the room with a plain backdrop (needs person detection)."""
+        if self.seg is None:
+            return img
+        cache = self.__dict__.setdefault("_room_masks", {})
+        tick = getattr(self, "_ticks", 0)
+        hit = cache.get(key)
+        if hit is not None and hit[1] == img.shape[:2] and 0 <= tick - hit[0] < 3:
+            a = hit[2]                       # people move slowly: a mask a frame or two old is fine (saves CPU)
+        else:
+            try:
+                prob = self.seg.probability(img)
+            except Exception:  # noqa: BLE001
+                return img
+            a = cv2.resize(prob, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_LINEAR)
+            a = np.clip((cv2.GaussianBlur(a, (0, 0), 1.2) - 0.25) / 0.5, 0, 1)[..., None]
+            cache[key] = (tick, img.shape[:2], a)
+        back = np.empty_like(img)
+        back[:] = self.ROOM_BACKDROP
+        return (img * a + back * (1 - a)).astype(np.uint8)
+
     def _draw_offair_overlay(self, prev: np.ndarray, ghost_src: np.ndarray, label: str,
                              text_y: int = 34) -> np.ndarray:
         """Ghost `ghost_src` (the feed you'd cut to) over the preview of what's on air."""
         cfg = self.cfg
         ghost = cv2.flip(ghost_src, 1) if cfg.mirror_preview else ghost_src
         ghost = cv2.resize(ghost, (prev.shape[1], prev.shape[0]), interpolation=cv2.INTER_AREA)
+        if not cfg.preview_room:
+            ghost = self._hide_room(ghost, "ghost")
         prev = cv2.addWeighted(prev, 1 - cfg.overlay_opacity, ghost, cfg.overlay_opacity, 0)
         h, w = prev.shape[:2]
         if self.sync >= SYNC_THRESHOLD:
@@ -1243,6 +1277,13 @@ class Engine:
         prev = cv2.flip(base, 1) if (cfg.mirror_preview and not message_only) else base
         w, h = self.preview_size
         prev = cv2.resize(prev, (max(2, w), max(2, h)), interpolation=cv2.INTER_AREA)
+        if self.rehearse_at is not None and not recording and self.calibrator is None:
+            shown = self._rehearsal_frame(out, live, loop_frame)
+            if shown is not None:
+                return cv2.cvtColor(shown, cv2.COLOR_BGR2RGB)
+        hide_room = not cfg.preview_room and not recording and self.calibrator is None
+        if hide_room:
+            prev = self._hide_room(prev)
         if self.calibrator is not None:
             self._draw_calibration(prev)
         elif self.recorder.state == State.PROCESSING:
@@ -1284,6 +1325,55 @@ class Engine:
         if left is not None and left <= 30:
             guides.banner(prev, f"Free LOOP time ends in {format_left(left)} - then back to LIVE", brand.CV_AMBER)
         return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB)
+
+    # ---------- Rehearse cut: what the meeting would see, in the preview only ----------
+    REHEARSE_BEFORE, REHEARSE_AFTER = 1.0, 2.2     # seconds of "now on air", then of "after the cut"
+
+    def start_rehearsal(self) -> None:
+        if self.player is None or (not self.loop_running and self.player.first_frame is None):
+            self.notify("Record or choose a loop first - then you can rehearse the cut.", 6)
+            return
+        if self.recording_active or self.calibrator is not None:
+            return
+        self.rehearse_at = time.monotonic()
+
+    def _rehearsal_frame(self, out: np.ndarray, live: np.ndarray, loop_frame: np.ndarray | None):
+        """The preview during a rehearsal: what's on air, then the cut exactly as the meeting would get it
+        (same lighting match, watermark and crossfade), then back to normal. Nothing changes on air."""
+        t = time.monotonic() - self.rehearse_at
+        if t >= self.REHEARSE_BEFORE + self.REHEARSE_AFTER:
+            self.rehearse_at = None
+            return None
+        cfg = self.cfg
+        if self.mode == "live":
+            nxt = loop_frame if (self.loop_running and loop_frame is not None) else self.lit(self.player.first_frame)
+            nxt_mode = "loop"
+        else:
+            nxt, nxt_mode = live, "live"
+        if nxt is None:
+            self.rehearse_at = None
+            return None
+
+        def as_meeting_sees(frame, mode):
+            return self.stamp_badge(frame.copy()) if (mode == "loop" and cfg.loop_badge) else frame
+        before = as_meeting_sees(out, self.mode)
+        after = as_meeting_sees(nxt, nxt_mode)
+        if t < self.REHEARSE_BEFORE:
+            frame, label, mode = before, "now on air", self.mode
+        else:
+            k = (t - self.REHEARSE_BEFORE) * 1000 / cfg.crossfade_ms if cfg.crossfade_ms > 0 else 1.0
+            frame = after if k >= 1 else cv2.addWeighted(before, 1 - k, after, k, 0)
+            label, mode = "after the cut", nxt_mode
+        prev = cv2.flip(frame, 1) if cfg.mirror_preview else frame
+        w, h = self.preview_size
+        prev = cv2.resize(prev, (max(2, w), max(2, h)), interpolation=cv2.INTER_AREA)
+        if not cfg.preview_room:
+            prev = self._hide_room(prev, "rehearsal")
+        guides.banner(prev, f"REHEARSAL - not on air:  {label}  ({mode.upper()})", brand.CV_VIOLET)
+        hh, ww = prev.shape[:2]
+        cv2.rectangle(prev, (0, 0), (ww - 1, hh - 1), brand.CV_VIOLET if mode == "loop" else brand.CV_AQUA_DARK,
+                      max(4, ww // 160) * 2)
+        return prev
 
     def _draw_on_air(self, prev: np.ndarray) -> None:
         """What Zoom sees right now, impossible to miss: a pulsing ON AIR sign (top right) and a border in the

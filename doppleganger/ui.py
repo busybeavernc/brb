@@ -425,6 +425,9 @@ class MainWindow:
         self.v_badge = tk.BooleanVar(value=self.cfg.loop_badge)
         Toggle(side, text="BRB Watermark", variable=self.v_badge,
                command=lambda: self.e.request("badge"), wraplength=px(290)).grid(sticky="w", pady=(6, 0))
+        self.v_room = tk.BooleanVar(value=self.cfg.preview_room)
+        Toggle(side, text="Background", variable=self.v_room,
+               command=lambda: self.e.request("preview_room"), wraplength=px(290)).grid(sticky="w", pady=(6, 0))
 
         # --- cut ---
         self.cut_btn = HoldButton(side, self.e)
@@ -432,6 +435,10 @@ class MainWindow:
         hk = ("fn+" if IS_MAC else "") + self.cfg.hotkey.strip("<>").upper()
         ttk.Label(side, text=f"Tap: cut now  ·  Hold: cut when in sync  ({hk} / Space)",
                   style="Small.TLabel").grid(sticky="w")
+        ttk.Button(side, text="Rehearse cut", command=lambda: self.e.request("rehearse")).grid(
+            sticky="ew", pady=(6, 0))
+        ttk.Label(side, text="Plays the cut here as the meeting would see it. Nothing goes on air.",
+                  style="Small.TLabel", wraplength=px(290), justify="left").grid(sticky="w")
 
         row = ttk.Frame(side)
         row.grid(sticky="ew", pady=(10, 0))
@@ -759,6 +766,8 @@ class MainWindow:
             self.v_badge.set(self.cfg.loop_badge)
         if self.v_face.get() != self.cfg.show_face_guide:
             self.v_face.set(self.cfg.show_face_guide)
+        if self.v_room.get() != self.cfg.preview_room:
+            self.v_room.set(self.cfg.preview_room)
         self._refresh_license()
         warns = ([e.lighting_warning] if e.lighting_warning else []) + list(e.scene_warnings)
         text = ("⚠ " + " · ".join(warns)) if warns else ""
