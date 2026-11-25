@@ -14,6 +14,7 @@ Updates are found and downloaded in the background (stage()), and installed the 
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -94,6 +95,8 @@ class Release:
     version: str
     download_url: str
     notes: str = ""
+    size: int = 0          # bytes, from GitHub (0 = unknown)
+    sha256: str = ""       # from GitHub's asset digest ("" = unknown)
 
 
 class UpdateError(Exception):
@@ -101,7 +104,7 @@ class UpdateError(Exception):
 
 
 def _request(url: str, token: str, accept: str = "application/vnd.github+json") -> urllib.request.Request:
-    headers = {"User-Agent": "Doppleganger-updater", "Accept": accept}
+    headers = {"User-Agent": "BRB-updater", "Accept": accept}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return urllib.request.Request(url, headers=headers)
@@ -131,7 +134,9 @@ def _check(repo: str, token: str = "", timeout: float = 5.0) -> Release | None:
         return None
     # Private repos need the API asset URL (works with a token); public can use the plain link.
     dl = asset["url"] if token else asset["browser_download_url"]
-    return Release(tag.lstrip("v"), dl, data.get("body", ""))
+    digest = str(asset.get("digest") or "")
+    return Release(tag.lstrip("v"), dl, data.get("body", ""), int(asset.get("size") or 0),
+                   digest.split(":", 1)[1].lower() if digest.startswith("sha256:") else "")
 
 
 def updates_dir() -> str:
@@ -145,24 +150,39 @@ def download(release: Release, token: str = "",
              progress: Callable[[float], None] | None = None) -> str:
     """Download the new build into the updates folder. Returns its path."""
     dest = os.path.join(updates_dir(), f"{release.version}-{asset_name()}")
+    part = dest + ".part"     # only renamed to dest once it's complete and checked, so a cut-off download is never used
     req = _request(release.download_url, token, accept="application/octet-stream")
+    sha = hashlib.sha256()
     try:
-        with urllib.request.urlopen(req, timeout=30) as r, open(dest, "wb") as f:
+        with urllib.request.urlopen(req, timeout=30) as r, open(part, "wb") as f:
             total = int(r.headers.get("Content-Length") or 0)
             done = 0
             while chunk := r.read(1 << 16):
                 f.write(chunk)
+                sha.update(chunk)
                 done += len(chunk)
                 if progress and total:
                     progress(done / total)
     except (urllib.error.URLError, OSError) as e:
-        if os.path.exists(dest):
-            os.remove(dest)
+        _remove(part)
         raise UpdateError(f"Download failed: {e}") from e
-    if os.path.getsize(dest) < 1_000_000:  # sanity check: a real build is tens of MB
-        os.remove(dest)
-        raise UpdateError("Downloaded file looks incomplete")
+    size = os.path.getsize(part)
+    expected = release.size or total
+    if size < 1_000_000 or (expected and size != expected):
+        _remove(part)
+        raise UpdateError(f"The download was cut off ({size} of {expected or '?'} bytes) - it will try again later")
+    if release.sha256 and sha.hexdigest() != release.sha256:
+        _remove(part)
+        raise UpdateError("The download didn't match the release (checksum) - it will try again later")
+    os.replace(part, dest)
     return dest
+
+
+def _remove(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 # ---------- staged updates: downloaded in the background, installed at the next start ----------
@@ -212,7 +232,7 @@ def pending() -> tuple[str, str] | None:
     mine = parse_version(current_version())
     for n in names:
         path = os.path.join(updates_dir(), n)
-        if n.endswith((".ready", ".tries")):
+        if n.endswith((".ready", ".tries", ".part")):
             continue
         version = n.split("-", 1)[0]
         ok = (os.path.exists(path + ".ready") and n.endswith("-" + asset_name())

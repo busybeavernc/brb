@@ -1,3 +1,5 @@
+import hashlib
+import os
 import io
 import json
 import urllib.error
@@ -188,3 +190,39 @@ def test_falls_back_to_windows_starting_it(monkeypatch):
     monkeypatch.setattr(updater.subprocess, "run", lambda cmd, **kw: runs.append(cmd) or R())
     updater.start_detached(["cmd", "/c", r"C:\t\it's.bat"])
     assert runs and "Win32_Process" in runs[0][-1] and "it''s.bat" in runs[0][-1]
+
+
+class _Resp:
+    def __init__(self, data, length=None):
+        self._d, self.headers = io.BytesIO(data), {"Content-Length": str(len(data) if length is None else length)}
+
+    def read(self, n):
+        return self._d.read(n)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _download(monkeypatch, tmp_path, data, rel, length=None):
+    monkeypatch.setattr(updater, "updates_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(updater.urllib.request, "urlopen", lambda *a, **k: _Resp(data, length))
+    return updater.download(rel)
+
+
+def test_a_complete_download_that_matches_the_checksum_is_kept(monkeypatch, tmp_path):
+    data = os.urandom(1_200_000)
+    rel = updater.Release("0.1.99", "https://example.test/BRBSetup.exe", "", len(data), hashlib.sha256(data).hexdigest())
+    path = _download(monkeypatch, tmp_path, data, rel)
+    assert open(path, "rb").read() == data and not os.path.exists(path + ".part")
+
+
+def test_a_cut_off_or_damaged_download_is_thrown_away(monkeypatch, tmp_path):
+    data = os.urandom(1_200_000)
+    with pytest.raises(updater.UpdateError, match="cut off"):
+        _download(monkeypatch, tmp_path, data, updater.Release("0.1.99", "https://example.test/BRBSetup.exe", "", len(data) + 5000))
+    with pytest.raises(updater.UpdateError, match="checksum"):
+        _download(monkeypatch, tmp_path, data, updater.Release("0.1.99", "https://example.test/BRBSetup.exe", "", len(data), "0" * 64))
+    assert os.listdir(tmp_path) == []
