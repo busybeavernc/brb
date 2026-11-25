@@ -123,6 +123,20 @@ def selftest() -> int:
     check("device-id", lambda: __import__("doppleganger.device", fromlist=["x"]).device_id()[:12] + "...")
     check("certifi", lambda: __import__("certifi").where())
 
+    def name_alerts():
+        from . import namealert
+        if not namealert.supported():
+            return "not on this system"
+        import tempfile
+        from . import paths
+        paths.data_dir = lambda: tempfile.gettempdir()   # the spotter writes its keyword list there
+        c = namealert.Checker(["Jim"])
+        for _ in range(30):
+            c.feed(np.zeros(1600, np.float32))
+        __import__("soundcard")
+        return f"spotter + transcriber loaded, heard: {c.transcriber.text(np.zeros(8000, np.float32))!r}"
+    check("name-alerts", name_alerts)
+
     def tk():
         import tkinter
         r = tkinter.Tk()

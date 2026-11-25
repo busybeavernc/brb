@@ -67,6 +67,10 @@ class Config:
     voice_profile: str = ""             # voice name ("" = the default voice)
     meeting_chimes: bool = False        # soft chime on each cut (a meeting microphone may pick it up)
     scene_checks: bool = True           # warn if the camera moved, the background or your clothes changed
+    name_alerts: bool = False           # while on the LOOP: alert me if someone says my name (namealert.py)
+    alert_names: str = ""               # "Jim, Jimmy, Jim Smith"
+    alert_sensitivity: str = "normal"   # low / normal / high
+    alert_sound: bool = True            # play a sound with the alert (repeats until you're back)
     show_record_tips: bool = True       # show "how to record a good loop" before each recording
     mac_permissions_seen: bool = False  # Mac: the permissions page has been shown once
     setup_done: bool = False            # first-run setup wizard completed (or skipped)
@@ -87,6 +91,8 @@ class Config:
                 cfg.loop_seconds = float(max(60, min(600, float(cfg.loop_seconds))))
             except (TypeError, ValueError):
                 cfg.loop_seconds = 90.0
+            if cfg.alert_sensitivity not in ("low", "normal", "high"):
+                cfg.alert_sensitivity = "normal"
             if cfg.update_repo in OLD_UPDATE_REPOS:
                 cfg.update_repo = cls.update_repo
         return cfg

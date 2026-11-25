@@ -16,7 +16,7 @@ from tkinter import messagebox, simpledialog, ttk
 import cv2
 from PIL import Image, ImageTk
 
-from . import brand, guides, library, macos, updater, winutil
+from . import brand, guides, library, macos, namealert, updater, winutil
 from .brand import (AMBER, AQUA, BAD_TEXT, BORDER, CLOUD, DANGER, INK, IVORY, MIDNIGHT, MUTED, OK_TEXT, SURFACE, SURFACE_HI,
                     TEAL, TEAL_DARK, VIOLET, VIOLET_DARK, WARN_TEXT)
 from .cutcontrol import SYNC_THRESHOLD
@@ -316,6 +316,7 @@ class MainWindow:
         self.wizard: Wizard | None = None
         self.settings: SettingsWindow | None = None
         self.busy: BusyDialog | None = None
+        self.name_popup: NameAlertPopup | None = None
         self.tips: RecordTipsDialog | None = None
         self.license_dlg: LicenseDialog | None = None
         self.eula_dlg: EulaDialog | None = None
@@ -771,6 +772,16 @@ class MainWindow:
         if getattr(self, "_cams_seq", None) != e.cameras_seq:   # a webcam was plugged in or removed
             self._cams_seq = e.cameras_seq
             self.cam_box["values"] = e.tray_cameras()
+        if getattr(self, "_name_seq", 0) != e.name_alert_seq:   # a name alert came in, or ended
+            self._name_seq = e.name_alert_seq
+            if self.name_popup is not None:
+                self.name_popup.close()
+                self.name_popup = None
+            if e.name_alert is not None:
+                self.name_popup = NameAlertPopup(self, e.name_alert)
+        if e.names.problem:
+            problem, e.names.problem = e.names.problem, ""
+            e.notify(problem, 10)
         if e.camera_alert:
             alert, e.camera_alert = e.camera_alert, ""
             self.root.after(10, lambda: messagebox.showwarning("BRB: your webcam is in use", alert, parent=self.root))
@@ -779,6 +790,8 @@ class MainWindow:
             msg = e.camera_problem
         if e.mic.is_muted:
             msg = (msg + "   ·   " if msg else "") + "Microphone muted while the LOOP is on air"
+        if e.names.active:
+            msg = (msg + "   ·   " if msg else "") + "\U0001F442 Listening for your name"
         if IS_MAC and getattr(e, "_hk", None) is None and not msg:
             msg = "Hotkeys are off: allow Input Monitoring (Setup guide > Allow BRB on your Mac)"
         self.status.configure(text=msg)
@@ -1298,6 +1311,176 @@ class LicenseDialog:
         self.win.destroy()
 
 
+class NameAlertControls(ttk.Frame):
+    """Name alerts on/off, your names, sensitivity, sound and a microphone test - in Settings and the setup guide."""
+
+    EXPLAIN = ("While your LOOP is on air, BRB listens to the meeting for your name and alerts you if someone calls "
+               "on you, with what they said. It all happens on this computer: at most the last 10 seconds of meeting "
+               "audio are held in memory, never saved or sent anywhere, and only the moment around your name is "
+               "transcribed. Nothing is listened to while you're LIVE.")
+
+    def __init__(self, parent, main: "MainWindow", wrap: int = 420):
+        super().__init__(parent)
+        self.main, self.e, self.cfg = main, main.e, main.cfg
+        self.v_on = tk.BooleanVar(value=self.cfg.name_alerts)
+        Toggle(self, text="Alert me if someone says my name while I'm on the LOOP", variable=self.v_on,
+               command=self._save).grid(sticky="w")
+        ttk.Label(self, text=self.EXPLAIN, style="Small.TLabel", wraplength=px(wrap), justify="left").grid(
+            sticky="w", padx=(44, 0), pady=(2, 6))
+        body = ttk.Frame(self)
+        body.grid(sticky="w", padx=(44, 0))
+        ttk.Label(body, text="My names").grid(row=0, column=0, sticky="w")
+        self.v_names = tk.StringVar(value=self.cfg.alert_names or self._guess_name())
+        ent = ttk.Entry(body, textvariable=self.v_names, width=30)
+        ent.grid(row=0, column=1, sticky="w", padx=8)
+        ent.bind("<FocusOut>", lambda _e: self._save())
+        ent.bind("<Return>", lambda _e: self._save())
+        ttk.Label(body, text="Separate with commas, e.g. Jim, Jimmy, Jim Smith. Type unusual names as they sound.",
+                  style="Small.TLabel", wraplength=px(wrap - 40), justify="left").grid(
+            row=1, column=0, columnspan=3, sticky="w", pady=(2, 6))
+        ttk.Label(body, text="Sensitivity").grid(row=2, column=0, sticky="w")
+        self.labels = {"low": "Low - fewer alerts", "normal": "Normal", "high": "High - never miss one"}
+        self.v_sens = tk.StringVar(value=self.labels.get(self.cfg.alert_sensitivity, "Normal"))
+        box = ttk.Combobox(body, textvariable=self.v_sens, values=list(self.labels.values()), state="readonly",
+                           width=22)
+        box.grid(row=2, column=1, sticky="w", padx=8)
+        box.bind("<<ComboboxSelected>>", lambda _e: self._save())
+        self.v_sound = tk.BooleanVar(value=self.cfg.alert_sound)
+        Toggle(body, text="Play a sound until I'm back", variable=self.v_sound, command=self._save).grid(
+            row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        row = ttk.Frame(body)
+        row.grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self.test_btn = ttk.Button(row, text="Test: say your name", command=self._test)
+        self.test_btn.pack(side="left")
+        ttk.Button(row, text="Hear the alert", command=self.e.voice.alert).pack(side="left", padx=(8, 0))
+        self.result = ttk.Label(body, text="", style="Small.TLabel", wraplength=px(wrap - 40), justify="left")
+        self.result.grid(row=5, column=0, columnspan=3, sticky="w", pady=(4, 0))
+
+    @staticmethod
+    def _guess_name() -> str:
+        """Your first name from your Windows account's display name ("Jim Smith" -> "Jim"), else nothing."""
+        if os.name != "nt":
+            return ""
+        try:
+            import ctypes
+            size = ctypes.c_ulong(256)
+            buf = ctypes.create_unicode_buffer(256)
+            if ctypes.windll.secur32.GetUserNameExW(3, buf, ctypes.byref(size)):   # NameDisplay
+                first = buf.value.split(",")[-1].split()[0] if buf.value.strip() else ""   # "Smith, Jim" too
+                return first if first.isalpha() and len(first) > 1 else ""
+        except Exception:  # noqa: BLE001
+            pass
+        return ""
+
+    def _save(self) -> None:
+        c = self.cfg
+        names = ", ".join(namealert.names_from(self.v_names.get()))
+        sens = next((k for k, v in self.labels.items() if v == self.v_sens.get()), "normal")
+        on = bool(self.v_on.get())
+        if on and not names:
+            self.result.configure(text="Add your name first.", foreground=WARN_TEXT)
+        changed = (c.name_alerts, c.alert_names, c.alert_sensitivity, c.alert_sound) != (on, names, sens,
+                                                                                          self.v_sound.get())
+        c.name_alerts, c.alert_names, c.alert_sensitivity = on, names, sens
+        c.alert_sound = bool(self.v_sound.get())
+        if changed:
+            c.save(self.e.config_path)
+            self.e.request("name_alerts")
+
+    def _test(self) -> None:
+        self._save()
+        if not self.cfg.alert_names:
+            self.result.configure(text="Add your name first.", foreground=WARN_TEXT)
+            return
+        self.test_btn.state(["disabled"])
+        self.result.configure(text="Listening to your microphone for 6 seconds - say a sentence with your name, "
+                                   "like \u201cJim, can you take this one?\u201d", foreground=MUTED)
+
+        def work():
+            try:
+                name, text = namealert.test_with_microphone(self.cfg)
+                if name:
+                    msg, col = f"\u2713 Heard \u201c{name}\u201d: \u201c{text}\u201d", OK_TEXT
+                elif text:
+                    msg, col = (f"Didn't catch your name. Heard: \u201c{text}\u201d. Try again, or add how it "
+                                "sounds (e.g. \u201cShawn\u201d for Sean).", WARN_TEXT)
+                else:
+                    msg, col = "Didn't hear anything - check your microphone.", WARN_TEXT
+            except Exception as e:  # noqa: BLE001
+                msg, col = f"The test couldn't run: {e}", BAD_TEXT
+
+            def show():
+                if self.winfo_exists():
+                    self.result.configure(text=msg, foreground=col)
+                    self.test_btn.state(["!disabled"])
+            self.after(0, show)
+        threading.Thread(target=work, daemon=True).start()
+
+
+class NameAlertPopup:
+    """Someone said your name while the LOOP was on air: a window on top of everything (hidden from screen shares),
+    a flashing taskbar button and - if on - a sound every few seconds, until you're LIVE again or dismiss it."""
+
+    REPEAT_MS = 5000
+    MAX_REPEATS = 24          # about two minutes of sound, then just the window
+
+    def __init__(self, main: "MainWindow", alert):
+        self.main, self.e = main, main.e
+        self.win = tk.Toplevel(main.root)
+        self.win.title("BRB: someone said your name")
+        self.win.resizable(False, False)
+        self.win.configure(bg=AMBER)
+        self.win.attributes("-topmost", True)
+        self.win.protocol("WM_DELETE_WINDOW", self.dismiss)
+        f = tk.Frame(self.win, bg=AMBER, padx=22, pady=16)
+        f.pack(fill="both")
+        head = f"\U0001F514  {alert.question and 'Question for you' or 'Someone said your name'}"
+        tk.Label(f, text=head, bg=AMBER, fg=INK, font=F(15, "bold")).pack(anchor="w")
+        said = f"\u201c{alert.text}\u201d" if alert.text else f"Someone said \u201c{alert.name}\u201d."
+        tk.Label(f, text=said, bg=AMBER, fg=INK, font=F(11), wraplength=px(420), justify="left").pack(
+            anchor="w", pady=(6, 2))
+        when = time.strftime("%H:%M", time.localtime(alert.at))
+        tk.Label(f, text=f"Heard at {when}. Your LOOP is still on air.", bg=AMBER, fg=INK, font=F(9)).pack(anchor="w")
+        row = tk.Frame(f, bg=AMBER)
+        row.pack(anchor="e", pady=(12, 0))
+        hk = self.main.cfg.hotkey.strip("<>").upper()
+        ttk.Button(row, text="Dismiss", command=self.dismiss).pack(side="right")
+        ttk.Button(row, text=f"Go LIVE ({hk})", style="Accent.TButton",
+                   command=lambda: (self.e.request("toggle"), self.close())).pack(side="right", padx=(0, 8))
+        self.win.bind("<Escape>", lambda _e: self.dismiss())
+        self.win.update_idletasks()
+        sw = self.win.winfo_screenwidth()
+        self.win.geometry(f"+{(sw - self.win.winfo_reqwidth()) // 2}+{px(60)}")
+        try:
+            winutil.hide_from_capture(self.win, True)      # what was said never shows in a screen share
+        except Exception:  # noqa: BLE001
+            pass
+        self.win.lift()
+        self.win.focus_force()
+        winutil.flash(self.win)
+        self._repeats = 0
+        self._sound()
+
+    def _sound(self) -> None:
+        if not self.win.winfo_exists():
+            return
+        if self.main.cfg.alert_sound and self._repeats < self.MAX_REPEATS:
+            self.e.voice.alert()
+            self._repeats += 1
+            self.win.after(self.REPEAT_MS, self._sound)
+
+    def dismiss(self) -> None:
+        self.e.request("dismiss_name_alert")
+        self.close()
+
+    def close(self) -> None:
+        self._repeats = self.MAX_REPEATS
+        try:
+            self.win.destroy()
+        except tk.TclError:
+            pass
+
+
 class BusyDialog:
     """Modal 'Stitching your new loop...' with progress. Blocks the window until the loop is ready."""
 
@@ -1427,6 +1610,10 @@ class SettingsWindow:
                command=self._changed).grid(sticky="w", pady=(6, 0))
         ttk.Label(f, text="Use headphones: through speakers, your meeting's microphone may pick it up.",
                   style="Small.TLabel", wraplength=px(420), justify="left").grid(sticky="w", padx=(44, 0))
+
+        if namealert.supported():
+            ttk.Label(f, text="Name alerts", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
+            NameAlertControls(f, main).grid(sticky="w")
 
         ttk.Label(f, text="Cuts & preview", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
         self.v_fade = tk.BooleanVar(value=self.cfg.crossfade_ms > 0)
@@ -1725,7 +1912,7 @@ class MiniBar:
 class Wizard:
     """First-run setup: camera -> webcam -> calibrate -> first loop -> Zoom."""
 
-    STEPS = ("welcome", "camera", "webcam", "calibrate", "record", "zoom")
+    STEPS = ("welcome", "camera", "webcam", "calibrate", "record", "alerts", "zoom")
 
     def __init__(self, main: MainWindow):
         self.main = main
@@ -1735,6 +1922,8 @@ class Wizard:
         if IS_MAC:  # macOS privacy permissions get their own page, right after the OBS camera
             self.STEPS = ("welcome", "camera", "permissions") + tuple(
                 s for s in self.STEPS if s not in ("welcome", "camera"))
+        if not namealert.supported():
+            self.STEPS = tuple(s for s in self.STEPS if s != "alerts")
         if self._camera_ready():   # nothing to do on the camera step: leave it out
             self.STEPS = tuple(s for s in self.STEPS if s != "camera")
         self._perm_checked = 0.0
@@ -1990,6 +2179,12 @@ class Wizard:
                                      command=lambda: self.e.request("record"))
         self.rec_button.pack(anchor="w", pady=(4, 0))
         self._status()
+
+    def _page_alerts(self):
+        self._title(f"{self.STEPS.index('alerts')}  Name alerts (optional)")
+        self._para("Stepping away? BRB can tell you when someone in the meeting asks for you. Turn it on here or "
+                   "later in Settings.")
+        NameAlertControls(self.body, self.main, wrap=430).pack(anchor="w")
 
     def _page_zoom(self):
         self._title(f"{self.STEPS.index('zoom')}  Use it in your meeting")

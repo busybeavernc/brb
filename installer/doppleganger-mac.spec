@@ -8,7 +8,14 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 VERSION = os.environ.get("DOPPLEGANGER_VERSION", "0.1.0")
 
-datas = [(os.path.join(ROOT, "doppleganger", "assets"), "doppleganger/assets")]
+# the assets, minus the Name alerts speech models (Windows only for now)
+_assets = os.path.join(ROOT, "doppleganger", "assets")
+datas = []
+for _dir, _subdirs, _files in os.walk(_assets):
+    _rel = os.path.relpath(_dir, _assets).replace(os.sep, "/")
+    if _rel in ("models/kws", "models/asr") or _rel.startswith(("models/kws/", "models/asr/")):
+        continue
+    datas += [(os.path.join(_dir, f), "doppleganger/assets" + ("" if _rel == "." else "/" + _rel)) for f in _files]
 if os.path.exists(os.path.join(ROOT, "THIRD-PARTY-NOTICES.txt")):   # written by tools/third_party_notices.py in the build
     datas.append((os.path.join(ROOT, "THIRD-PARTY-NOTICES.txt"), "."))
 binaries, hidden = [], ["Quartz", "AppKit", "Foundation", "objc"]

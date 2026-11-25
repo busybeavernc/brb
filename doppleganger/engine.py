@@ -14,7 +14,7 @@ import numpy as np
 from . import guides, library, updater
 from . import vcam as vcamlib
 from .calibrate import Calibrator
-from . import camera_users, facekeys, lightmatch, scenecheck, voice
+from . import camera_users, facekeys, lightmatch, namealert, scenecheck, voice
 from .camera import Camera, NoCamera, placeholder
 from .config import Config
 from .cutcontrol import SYNC_THRESHOLD, CutController
@@ -210,6 +210,9 @@ class Engine:
         self.live_light = None
         self.light = lightmatch.LightMatch()   # the loop, adjusted to the room's light now
         self.voice = voice.Voice(cfg)          # spoken guidance while recording, chimes on cuts
+        self.names = namealert.Listener(cfg, self._name_heard)   # name alerts while the LOOP is on air
+        self.name_alert: namealert.Alert | None = None           # showing until you're back (or dismiss it)
+        self.name_alert_seq = 0
         # face guide and scene checks (analysis thread)
         self.face_target = self.face_live = None
         self.face_alignment: facekeys.Alignment | None = None
@@ -668,11 +671,32 @@ class Engine:
         self.notify(why, 15)
 
     def _apply_mic(self) -> None:
-        """Silence while the LOOP is on air (if enabled); your mic is back the moment you're live."""
+        """Silence while the LOOP is on air (if enabled); your mic is back the moment you're live.
+        Name alerts listen only while the LOOP is on air, too."""
         if self.mode == "loop" and self.cfg.mute_mic_on_loop:
             self.mic.mute()
         else:
             self.mic.restore()
+        self.apply_name_alerts()
+
+    def apply_name_alerts(self) -> None:
+        if self.mode == "loop" and self.cfg.name_alerts and namealert.supported():
+            self.names.start()
+        else:
+            self.names.stop()
+            if self.mode == "live":
+                self.dismiss_name_alert()
+
+    def _name_heard(self, alert: "namealert.Alert") -> None:
+        if self.mode != "loop":
+            return
+        self.name_alert = alert
+        self.name_alert_seq += 1
+
+    def dismiss_name_alert(self) -> None:
+        if self.name_alert is not None:
+            self.name_alert = None
+            self.name_alert_seq += 1
 
     def press_cut(self) -> None:
         self.cut.press(time.monotonic())
@@ -930,6 +954,11 @@ class Engine:
                 self.library_version += 1
             elif a == "mic_setting":
                 self._apply_mic()
+            elif a == "name_alerts":
+                self.names.stop()          # restart with the new names / sensitivity
+                self.apply_name_alerts()
+            elif a == "dismiss_name_alert":
+                self.dismiss_name_alert()
             elif a == "install_driver":
                 self.install_driver()
             elif a == "uninstall_driver":
@@ -1288,6 +1317,7 @@ class Engine:
             return
         self._closed = True
         self.running = False
+        self.names.stop()
         t = getattr(self, "_out_thread", None)
         if t is not None and t is not threading.current_thread():
             t.join(timeout=1.0)   # let the meeting's output stop before its camera closes

@@ -95,3 +95,22 @@ def hide_from_capture(widget, hide: bool = True) -> bool:
     ok = bool(user32.SetWindowDisplayAffinity(hwnd, WDA_MONITOR))
     log.info("Exclude-from-capture unavailable; using black-box fallback: %s", ok)
     return ok
+
+
+def flash(widget, count: int = 6) -> None:
+    """Flash the window's taskbar button (and title) to get attention."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class FLASHWINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.UINT), ("hwnd", wintypes.HWND), ("dwFlags", wintypes.DWORD),
+                        ("uCount", wintypes.UINT), ("dwTimeout", wintypes.DWORD)]
+        hwnd = toplevel_hwnd(widget)
+        if hwnd:
+            info = FLASHWINFO(ctypes.sizeof(FLASHWINFO), hwnd, 0x3 | 0xC, count, 0)   # all, until in front
+            ctypes.windll.user32.FlashWindowEx(ctypes.byref(info))
+    except Exception:  # noqa: BLE001
+        pass

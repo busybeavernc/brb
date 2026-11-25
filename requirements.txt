@@ -7,3 +7,6 @@ pyobjc-framework-Quartz>=10; sys_platform == "darwin"       # Mac: global hotkey
 pyobjc-framework-Cocoa>=10; sys_platform == "darwin"        # Mac: webcam names, camera permission, hide from sharing
 Pillow>=10
 certifi>=2024.2              # trusted certificates for the license server (bundled, not the system's)
+sherpa-onnx==2.0.3; sys_platform == "win32"     # name alerts: on-device keyword spotting + transcription
+sentencepiece>=0.2; sys_platform == "win32"     # name alerts: turns your names into the spotter's word pieces
+soundcard>=0.4.6; sys_platform == "win32"       # name alerts: listen to what the PC plays (WASAPI loopback)

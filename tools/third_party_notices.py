@@ -83,6 +83,11 @@ def main(out_path: str) -> None:
     if os.path.exists(softcam):
         sections.append(("softcam (HappyHacks Virtual Camera)", "", "MIT", "https://github.com/tshino/softcam",
                          [("LICENSE", open(softcam, encoding="utf-8").read().strip())]))
+    for name, url in (("Speech models for Name alerts (k2-fsa / icefall zipformer: keyword spotter + small English "
+                       "recogniser)", "https://github.com/k2-fsa/icefall"),):
+        sections.append((name, "", "Apache-2.0", url,
+                         [("", "Licensed under the Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0 "
+                               "(full text under the sherpa-onnx entry below).")]))
     for d in bundled():
         m = d.metadata
         lic = m.get("License-Expression") or (m.get("License") or "").split("\n")[0][:80]

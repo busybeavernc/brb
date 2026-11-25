@@ -211,6 +211,12 @@ class Voice:
             if path:
                 self._p().play(path)
 
+    def alert(self) -> None:
+        """Name alert sound (Settings > Name alerts > sound), whatever the guidance/chime settings."""
+        path = chime_path("alert")
+        if path:
+            self._p().play(path)
+
     def stop(self) -> None:
         if self._player is not None:
             self._player.stop()
