@@ -1,20 +1,24 @@
 """Licensing: free LOOP time and license keys, checked with brb.happyhacks.io.
 
-  - Every computer gets some free LOOP time in total (1 hour); a license key means unlimited.
+  - Every computer gets some free LOOP time in total (the server decides: 30 minutes); a license key means unlimited.
   - Time counts only while the LOOP is on air. The server keeps the count, per computer (device.py), so reinstalling
     or editing files can't reset it: the app *leases* LOOP time from the server (30 s at a time, renewed while the
     LOOP is on air, the unused part given back when it cuts to LIVE).
-  - The LOOP needs an internet connection: without a lease from the server, Doppleganger cuts back to LIVE.
+  - The LOOP needs an internet connection: without a lease from the server, BRB cuts back to LIVE.
 
-The server's address is built in (not a setting), and only certificates from the bundled list are trusted, so a
-look-alike local server can't hand out time. Network calls run on a background thread; the video never waits.
+The server's address is built in (not a setting), and every reply must carry the server's signature (Ed25519, public
+key below), answer this request's random nonce and name this computer. So a look-alike server - even one trusted
+through a certificate someone added to this PC or to BRB's certificate list - can't hand out time, and an old reply
+can't be replayed. Network calls run on a background thread; the video never waits.
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
 import queue
+import secrets
 import ssl
 import sys
 import threading
@@ -22,11 +26,14 @@ import time
 import urllib.error
 import urllib.request
 
-from . import device
+from . import device, ed25519
 
 log = logging.getLogger("doppleganger")
 
 SERVER = "https://brb.happyhacks.io"
+# The site's license-signing public keys (https://brb.happyhacks.io/.well-known/brb-license-key). More than one
+# while a key is being replaced. Empty = don't require signatures (only until the site's key is published).
+PUBLIC_KEYS: list[str] = []
 STATUS_EVERY = 300.0    # recheck the license this often (s)
 WATCH_EVERY = 5.0       # ...and this often after "Get Unlimited Access Now", until the purchase shows up
 WATCH_FOR = 20 * 60.0   # (for up to 20 minutes)
@@ -62,6 +69,17 @@ def _cert_problem(e: BaseException) -> bool:
     return isinstance(r, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(r)
 
 
+def genuine(raw: bytes, signature: str, data: dict, body: dict) -> bool:
+    """Signed by the site, for this request (nonce) and this computer?"""
+    try:
+        sig = base64.b64decode(signature or "", validate=True)
+    except ValueError:
+        return False
+    if data.get("nonce") != body.get("nonce") or data.get("device_id") != body.get("device_id") or not body.get("nonce"):
+        return False
+    return any(ed25519.verify(base64.b64decode(k), raw, sig) for k in PUBLIC_KEYS)
+
+
 def format_left(seconds: float) -> str:
     s = max(0, int(round(seconds)))
     if s >= 3600:
@@ -74,6 +92,7 @@ class LicenseGate:
     def __init__(self, cfg, save, version: str = "", transport=None):
         self.cfg, self._save, self.version = cfg, save, version
         self._post = transport or self._http_post
+        self._require_signed = transport is None and bool(PUBLIC_KEYS)
         self._system_certs = False    # switched on if the bundled certificates are rejected (antivirus, company proxy)
         self._lock = threading.Lock()
         self._q: queue.Queue = queue.Queue()
@@ -234,7 +253,7 @@ class LicenseGate:
 
     def _body(self, **extra) -> dict:
         return {"device_id": device.device_id(), "device_name": device.device_name(), "platform": device.platform_name(),
-                "app_version": self.version, "key": self.key, **extra}
+                "app_version": self.version, "key": self.key, "nonce": secrets.token_urlsafe(18), **extra}
 
     def _http_post(self, path: str, body: dict) -> tuple[int, dict]:
         url = server() + path
@@ -253,7 +272,13 @@ class LicenseGate:
                     self._system_certs = True   # e.g. antivirus inspecting HTTPS
                     resp = urllib.request.urlopen(req, timeout=10, context=_ssl_context(True))
                 with resp as r:
-                    return r.status, json.loads(r.read() or b"{}")
+                    raw = r.read() or b"{}"
+                    data = json.loads(raw)
+                    if isinstance(data, dict):
+                        headers = getattr(r, "headers", None)
+                        data["_signed"] = genuine(raw, headers.get("X-BRB-Signature", "") if headers else "",
+                                                  data, body)
+                    return r.status, data
             except urllib.error.HTTPError as e:
                 target = e.headers.get("Location") if e.code in (301, 302, 307, 308) else None
                 if target and target.startswith("https://") and target.split("/")[2].endswith("happyhacks.io"):
@@ -283,6 +308,14 @@ class LicenseGate:
             log.info("license server unreachable: %r", e)
             return
         self.online = True
+        if code == 200 and self._require_signed and not data.get("_signed"):
+            log.warning("license reply without a valid signature - ignored")
+            self.message = ("Couldn't confirm the reply came from brb.happyhacks.io (something on this network or PC "
+                            "changed it). The LOOP needs a genuine reply.")
+            if kind == "lease" and action in ("start", "renew"):
+                self.lease_refused = True
+                self.lease_until = 0.0
+            return
         if code != 200:
             self.message = str(data.get("error") or f"License server error ({code}).")
             if kind == "lease" and action in ("start", "renew"):

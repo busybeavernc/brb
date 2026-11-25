@@ -177,6 +177,12 @@ jobs:
       #   dist_onefile/BRB.exe a single self-extracting file - for copies installed before v0.1.98 (their updater
       #                        swaps in BRB.exe, which then moves them to the installer), and to run without installing.
       # matplotlib is left out: MediaPipe imports it only for plotting helpers BRB never uses (see the runtime hook).
+      # The licensing code becomes native code (Cython): harder to read or patch than Python bytecode.
+      - name: Compile the licensing code
+        run: |
+          pip install "cython>=3.0,<4" setuptools
+          python tools/compile_licensing.py
+
       - name: Build BRB
         shell: pwsh
         run: |
@@ -201,7 +207,10 @@ jobs:
             "--runtime-hook", "installer/rthook_no_matplotlib.py",
             "--hidden-import", "pynput.keyboard._win32",
             "--hidden-import", "pynput.mouse._win32",
-            "--hidden-import", "pystray._win32"
+            "--hidden-import", "pystray._win32",
+            "--hidden-import", "doppleganger.device", "--hidden-import", "doppleganger.ed25519",
+            "--hidden-import", "secrets", "--hidden-import", "queue", "--hidden-import", "uuid",
+            "--hidden-import", "certifi", "--hidden-import", "winreg"
           )
           pyinstaller @common --onefile --distpath dist_onefile --workpath build_onefile launcher.py
           if ($LASTEXITCODE) { exit 1 }

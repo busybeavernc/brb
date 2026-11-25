@@ -137,6 +137,20 @@ def selftest() -> int:
         return f"spotter + transcriber loaded, heard: {c.transcriber.text(np.zeros(8000, np.float32))!r}"
     check("name-alerts", name_alerts)
 
+    def licensing():
+        from . import ed25519
+        from . import license as lic
+        rfc = ed25519.verify(bytes.fromhex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"), b"",
+                             bytes.fromhex("e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a3"
+                                           "3bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"))
+        if not rfc:
+            raise RuntimeError("signature check failed its test")
+        compiled = not lic.__file__.endswith((".py", ".pyc"))
+        if getattr(sys, "frozen", False) and os.name == "nt" and not compiled:
+            raise RuntimeError("licensing code isn't compiled")
+        return f"keys pinned: {len(lic.PUBLIC_KEYS)}, compiled: {compiled}"
+    check("licensing", licensing)
+
     def tk():
         import tkinter
         r = tkinter.Tk()

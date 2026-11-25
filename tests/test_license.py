@@ -1,3 +1,4 @@
+import pytest
 """Licensing in the app: device id, and the lease logic against a stand-in server."""
 import struct
 import time
@@ -183,7 +184,8 @@ def test_follows_a_moved_license_server(monkeypatch):
     monkeypatch.setattr(L, "server", lambda: "https://doppleganger.happyhacks.io")
     g = L.LicenseGate.__new__(L.LicenseGate)
     g.version = "t"
-    assert g._http_post("/api/v1/license/status", {}) == (200, {"ok": True})
+    code, data = g._http_post("/api/v1/license/status", {})
+    assert code == 200 and data["ok"] is True
     assert seen == [("https://doppleganger.happyhacks.io/api/v1/license/status", "POST"),
                     ("https://brb.happyhacks.io/api/v1/license/status", "POST")]
 
@@ -215,7 +217,8 @@ def test_falls_back_to_this_computers_certificates(monkeypatch):
     monkeypatch.setattr(L, "server", lambda: "https://brb.happyhacks.io")
     g = L.LicenseGate.__new__(L.LicenseGate)
     g.version = "t"
-    assert g._http_post("/api/v1/license/status", {}) == (200, {"ok": True})
+    code, data = g._http_post("/api/v1/license/status", {})
+    assert code == 200 and data["ok"] is True
     assert len(calls) == 2 and g._system_certs
 
 
@@ -260,3 +263,69 @@ def test_watches_for_a_purchase_after_get_unlimited(monkeypatch):
     now[0] += 6
     g.on_air(True)
     assert len(asked) == 2 and not g.watching
+
+
+def test_only_genuine_signed_replies_count(monkeypatch):
+    """A fake server (or an edited/replayed reply) can't hand out LOOP time."""
+    import base64
+    import io
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    key = Ed25519PrivateKey.generate()
+    pub = base64.b64encode(key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw))
+    monkeypatch.setattr(L, "PUBLIC_KEYS", [pub.decode()])
+    monkeypatch.setattr(L.device, "device_id", lambda: "dev1")
+    replies = []
+
+    class Resp(io.BytesIO):
+        status = 200
+
+        def __init__(self, data, headers):
+            super().__init__(data)
+            self.headers = headers
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=10, context=None):
+        body = __import__("json").loads(req.data)
+        raw, signer = replies.pop(0)(body)
+        return Resp(raw, {"X-BRB-Signature": signer(raw)})
+
+    def reply(**over):
+        def make(body):
+            d = {"ok": True, "unlimited": True, "lease_seconds": 30, "nonce": body["nonce"], "device_id": "dev1", **over}
+            return __import__("json").dumps(d).encode(), lambda raw: base64.b64encode(key.sign(raw)).decode()
+        return make
+
+    monkeypatch.setattr(L.urllib.request, "urlopen", fake_urlopen)
+    g = L.LicenseGate.__new__(L.LicenseGate)
+    g.version, g._system_certs = "t", False
+    body = lambda: g._body() if False else {"device_id": "dev1", "nonce": __import__("secrets").token_hex(8)}  # noqa: E731
+    replies.append(reply())
+    assert g._http_post("/x", body())[1]["_signed"] is True
+    replies.append(reply(nonce="old-reply"))                                  # replayed
+    assert g._http_post("/x", body())[1]["_signed"] is False
+    replies.append(reply(device_id="someone-else"))                           # another computer's
+    assert g._http_post("/x", body())[1]["_signed"] is False
+    other = Ed25519PrivateKey.generate()                                      # a fake server's own key
+    replies.append(lambda b: (reply()(b)[0], lambda raw: base64.b64encode(other.sign(raw)).decode()))
+    assert g._http_post("/x", body())[1]["_signed"] is False
+    replies.append(lambda b: (reply()(b)[0], lambda raw: ""))                 # no signature at all
+    assert g._http_post("/x", body())[1]["_signed"] is False
+
+
+def test_an_unsigned_lease_is_refused(monkeypatch):
+    monkeypatch.setattr(L, "PUBLIC_KEYS", ["AAAA"])
+    g = L.LicenseGate.__new__(L.LicenseGate)
+    g._require_signed = True
+    g.lease_refused, g.lease_until, g.message, g.online = False, 99.0, "", False
+    g._post = lambda path, body: (200, {"ok": True, "unlimited": True, "lease_seconds": 30, "_signed": False})
+    g._body = lambda **k: {}
+    g._call("lease", "start")
+    assert g.lease_refused and g.lease_until == 0.0 and "genuine" in g.message
