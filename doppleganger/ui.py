@@ -418,6 +418,9 @@ class MainWindow:
         self.v_outlines = tk.BooleanVar(value=self.cfg.show_outlines)
         Toggle(side, text="Outlines", variable=self.v_outlines,
                command=lambda: self.e.request("outlines"), wraplength=px(290)).grid(sticky="w", pady=(8, 0))
+        self.v_face = tk.BooleanVar(value=self.cfg.show_face_guide)
+        Toggle(side, text="Face guide", variable=self.v_face,
+               command=lambda: self.e.request("face_guide"), wraplength=px(290)).grid(sticky="w", pady=(6, 0))
         self.v_badge = tk.BooleanVar(value=self.cfg.loop_badge)
         Toggle(side, text="BRB Watermark", variable=self.v_badge,
                command=lambda: self.e.request("badge"), wraplength=px(290)).grid(sticky="w", pady=(6, 0))
@@ -744,9 +747,13 @@ class MainWindow:
             self.v_outlines.set(self.cfg.show_outlines)
         if self.v_badge.get() != self.cfg.loop_badge:
             self.v_badge.set(self.cfg.loop_badge)
+        if self.v_face.get() != self.cfg.show_face_guide:
+            self.v_face.set(self.cfg.show_face_guide)
         self._refresh_license()
-        warn = e.lighting_warning
-        self.light_lbl.configure(text=f"⚠ {warn}" if warn else "")
+        warns = ([e.lighting_warning] if e.lighting_warning else []) + list(e.scene_warnings)
+        text = ("⚠ " + " · ".join(warns)) if warns else ""
+        if self.light_lbl.cget("text") != text:
+            self.light_lbl.configure(text=text)
         if e.library_version != self._lib_version:
             self._lib_version = e.library_version
             self._refresh_library()
@@ -1396,6 +1403,12 @@ class SettingsWindow:
         self.v_outlines = tk.BooleanVar(value=self.cfg.show_outlines)
         Toggle(f, text=f"Show live ({brand.LIVE_WORD}) and loop ({brand.LOOP_WORD}) outlines (O)", variable=self.v_outlines,
                         command=self._changed).grid(sticky="w")
+        self.v_face = tk.BooleanVar(value=self.cfg.show_face_guide)
+        Toggle(f, text="Face guide: line up your eyes, nose and mouth with the loop's", variable=self.v_face,
+               command=self._changed).grid(sticky="w")
+        self.v_scene = tk.BooleanVar(value=self.cfg.scene_checks)
+        Toggle(f, text="Warn if the camera, the background or your clothes changed since the loop", variable=self.v_scene,
+               command=self._changed).grid(sticky="w")
         self.v_tips = tk.BooleanVar(value=self.cfg.show_record_tips)
         Toggle(f, text="Show recording tips before each recording", variable=self.v_tips,
                         command=self._changed).grid(sticky="w")
@@ -1492,6 +1505,10 @@ class SettingsWindow:
         c.loop_badge = self.v_badge.get()
         c.show_guides = self.v_guides.get()
         c.show_outlines = self.v_outlines.get()
+        c.show_face_guide = self.v_face.get()
+        c.scene_checks = self.v_scene.get()
+        if not c.scene_checks:
+            self.e.scene_warnings = []
         c.show_record_tips = self.v_tips.get()
         c.crossfade_ms = 300 if self.v_fade.get() else 0
         c.match_lighting = self.v_match.get()
@@ -1536,6 +1553,8 @@ class SettingsWindow:
         self.lic_lbl.configure(text=lic.summary() + (f"  ·  key {lic.key[-4:]}" if lic.key and lic.unlimited else ""))
         self.v_guides.set(self.cfg.show_guides)
         self.v_outlines.set(self.cfg.show_outlines)
+        if self.v_face.get() != self.cfg.show_face_guide:
+            self.v_face.set(self.cfg.show_face_guide)
         if self.v_badge.get() != self.cfg.loop_badge:
             self.v_badge.set(self.cfg.loop_badge)
         if self.e.update_ready and not self.restart_btn.winfo_ismapped():

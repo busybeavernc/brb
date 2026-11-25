@@ -62,6 +62,8 @@ class Config:
     text_scale: float = 1.0             # Text size: 0.85 (smaller) ... 1.75 (largest); Ctrl/Cmd + and -
     show_guides: bool = True
     show_outlines: bool = True          # Aqua (you) / Violet (loop) outlines in the preview
+    show_face_guide: bool = True        # eyes / nose / mouth alignment guide in the preview (facekeys.py)
+    scene_checks: bool = True           # warn if the camera moved, the background or your clothes changed
     show_record_tips: bool = True       # show "how to record a good loop" before each recording
     mac_permissions_seen: bool = False  # Mac: the permissions page has been shown once
     setup_done: bool = False            # first-run setup wizard completed (or skipped)

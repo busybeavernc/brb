@@ -309,3 +309,35 @@ def stamp_badge(frame: np.ndarray, cx: float = BADGE_X, cy: float = BADGE_Y, siz
     roi = out[y0:y1, x0:x1].astype(np.float32)
     out[y0:y1, x0:x1] = (roi * (1.0 - alpha) + color).astype(np.uint8)
     return out
+
+
+def draw_face_guide(img: np.ndarray, target: np.ndarray, live: np.ndarray | None, matched: list[bool],
+                    hint: str | None, mirrored: bool, loop_color, live_color) -> None:
+    """The face alignment guide: the loop's eyes, nose and mouth as a "T" of rings (filled when your matching point
+    is on it), yours as dots. Points are 4x(x, y) fractions of the picture as the webcam sees it."""
+    h, w = img.shape[:2]
+
+    def to_px(p):
+        x = (1.0 - p[0]) if mirrored else p[0]
+        return int(round(x * w)), int(round(p[1] * h))
+    t = [to_px(p) for p in target]
+    r = max(5, int(w * 0.011))
+    lw = max(1, int(w / 500))
+    mid = ((t[0][0] + t[1][0]) // 2, (t[0][1] + t[1][1]) // 2)
+    for a, b in ((t[0], t[1]), (mid, t[2]), (t[2], t[3])):
+        cv2.line(img, a, b, loop_color, lw, cv2.LINE_AA)
+    for p, ok in zip(t, matched):
+        cv2.circle(img, p, r, loop_color, -1 if ok else lw + 1, cv2.LINE_AA)
+    if live is not None:
+        l = [to_px(p) for p in live]
+        lmid = ((l[0][0] + l[1][0]) // 2, (l[0][1] + l[1][1]) // 2)
+        for a, b in ((l[0], l[1]), (lmid, l[2]), (l[2], l[3])):
+            cv2.line(img, a, b, live_color, lw, cv2.LINE_AA)
+        for p in l:
+            cv2.circle(img, p, max(3, r // 2), live_color, -1, cv2.LINE_AA)
+    if hint:
+        tw, th = text_size(hint, 0.6, bold=True)   # bottom centre: never over the face you're lining up
+        x = (w - tw) // 2
+        y = h - max(14, h // 22)
+        rounded_rect(img, (x - 8, y - th - 6), (x + tw + 8, y + 8), (30, 30, 30), radius=8, opacity=0.55)
+        put_text(img, hint, (x, y), 0.6, (255, 255, 255), bold=True)

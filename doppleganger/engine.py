@@ -14,7 +14,7 @@ import numpy as np
 from . import guides, library, updater
 from . import vcam as vcamlib
 from .calibrate import Calibrator
-from . import camera_users, lightmatch
+from . import camera_users, facekeys, lightmatch, scenecheck
 from .camera import Camera, NoCamera, placeholder
 from .config import Config
 from .cutcontrol import SYNC_THRESHOLD, CutController
@@ -209,6 +209,14 @@ class Engine:
         self.loop_light = None
         self.live_light = None
         self.light = lightmatch.LightMatch()   # the loop, adjusted to the room's light now
+        # face guide and scene checks (analysis thread)
+        self.face_target = self.face_live = None
+        self.face_alignment: facekeys.Alignment | None = None
+        self.scene_warnings: list[str] = []
+        self._scene_seen: dict[str, int] = {}
+        self._scene_loop: tuple[str, np.ndarray | None] | None = None
+        self._latest_live: np.ndarray | None = None
+        self._latest_loop: np.ndarray | None = None
         self.loop_sil: Silhouette | None = None
         self.loop_matcher: guides.PoseMatcher | None = None
         self.loop_running = False   # becomes True on the first cut to the loop
@@ -531,6 +539,8 @@ class Engine:
         self.sync = 0.0
         self.loop_light = library.info(path).lighting
         self.light.reset()
+        self.scene_warnings, self._scene_seen, self._scene_loop = [], {}, None
+        self.face_target = self.face_alignment = None
         # Start-pose silhouette + matcher, so LIVE preview shows when a cut to the loop will be invisible.
         self.loop_sil = Silhouette.load(path + ".mask.png") if os.path.exists(path + ".mask.png") else None
         self.loop_matcher = None
@@ -730,6 +740,16 @@ class Engine:
         if self.cfg.show_outlines and self.background is None and self.seg is None:
             self.notify("Outlines need a calibration for this webcam - see Settings.", 6)
 
+    def _draw_face_guide(self, prev: np.ndarray) -> None:
+        """Before cutting to the loop: the loop's eyes, nose and mouth, and yours, with a hint to line them up."""
+        if not (self.cfg.show_face_guide and self.mode == "live" and self.face_target is not None):
+            return
+        al, target, live = self.face_alignment, self.face_target, self.face_live
+        guides.draw_face_guide(prev, target.points(), live.points() if live is not None else None,
+                               al.matched if al else [False] * 4,
+                               al.hint if al else ("Look at the camera" if live is None else None),
+                               self.cfg.mirror_preview, brand.CV_VIOLET, brand.CV_AQUA)
+
     def _draw_outlines(self, prev: np.ndarray, live: np.ndarray, other: np.ndarray | None) -> None:
         """Green = you now, apricot = the loop. Overlapping lines = in sync."""
         if not self.cfg.show_outlines:
@@ -869,6 +889,9 @@ class Engine:
                 self.cancel()
             elif a == "outlines":
                 self.toggle_outlines()
+            elif a == "face_guide":
+                self.cfg.show_face_guide = not self.cfg.show_face_guide
+                self.cfg.save(self.config_path)
             elif a == "badge":
                 self.cfg.loop_badge = not self.cfg.loop_badge
                 self.cfg.save(self.config_path)
@@ -926,6 +949,7 @@ class Engine:
         self._last_live = live
         self._start_camera_watcher()
         threading.Thread(target=self._auto_update, daemon=True, name="auto-update").start()
+        threading.Thread(target=self._analyse, daemon=True, name="analysis").start()
         self._out_thread = threading.Thread(target=self._send_to_meeting, daemon=True, name="meeting-output")
         self._out_thread.start()
         self._ticks, self._ticks_at = 0, time.monotonic()
@@ -953,6 +977,8 @@ class Engine:
                 self._last_live = live
                 raw_loop = self.player.frame_now() if (self.loop_running and self.player) else None
                 loop_frame = self.lit(raw_loop)
+                if not waiting_placeholder:
+                    self._latest_live, self._latest_loop = live, raw_loop
                 out = self._compose(live, loop_frame, fade=False)
 
                 self._license_tick()
@@ -1045,6 +1071,73 @@ class Engine:
         diff = guides.frame_diff(guides.small_gray(live), guides.small_gray(target), weight)
         self.sync = 0.7 * self.sync + 0.3 * max(0.0, 1.0 - diff / 35.0)
 
+    # ---------- face guide and scene checks (their own thread: they take a few to ~50 ms) ----------
+    FACE_EVERY, SCENE_EVERY = 0.12, 2.5
+    SCENE_CONFIRM, SCENE_CLEAR = 3, 2     # checks in a row to show a warning / to clear it
+
+    def _analyse(self) -> None:
+        last_scene = 0.0
+        while self.running:
+            time.sleep(self.FACE_EVERY)
+            if self.starting or self.player is None or self._latest_live is None:
+                continue
+            try:
+                self._face_tick()
+                now = time.monotonic()
+                if self.cfg.scene_checks and now - last_scene > self.SCENE_EVERY:
+                    last_scene = now
+                    self._scene_tick()
+            except Exception:  # noqa: BLE001
+                log.exception("analysis")
+                time.sleep(2)
+
+    def _face_tick(self) -> None:
+        if not (self.cfg.show_face_guide and self.cfg.show_guides):
+            self.face_live = self.face_alignment = None
+            return
+        finder = facekeys.get()
+        if finder is None:
+            return
+        live, player = self._latest_live, self.player
+        target_src = self._latest_loop if (self.loop_running and self._latest_loop is not None) else player.first_frame
+        if target_src is None:
+            return
+        self.face_target = finder.find(target_src)
+        self.face_live = finder.find(live) if self.mode == "live" else None
+        if self.face_target is not None and self.face_live is not None:
+            h, w = live.shape[:2]
+            self.face_alignment = facekeys.align(self.face_target, self.face_live, w / h, self.cfg.mirror_preview)
+        else:
+            self.face_alignment = None
+
+    def _scene_tick(self) -> None:
+        player, live = self.player, self._latest_live
+        if player is None or player.first_frame is None or self.seg is None:
+            return
+        if self._scene_loop is None or self._scene_loop[0] != self.loop_path:
+            self._scene_loop = (self.loop_path, self.seg.probability(player.first_frame))
+        live_person = self.seg.probability(live)
+        found = scenecheck.compare(self.light.apply(player.first_frame), self._scene_loop[1], live, live_person)
+        msgs = found.messages()
+        self.scene_warnings = self._confirm(msgs, found.detail)
+
+    def _confirm(self, msgs: list[str], detail=None) -> list[str]:
+        """Only what's been seen several checks in a row counts; it clears after a couple of checks without it.
+        _scene_seen: + checks in a row seen, - checks in a row not seen."""
+        seen = self._scene_seen
+        for m in msgs:
+            seen[m] = seen[m] + 1 if seen.get(m, 0) > 0 else 1
+        for m in seen:
+            if m not in msgs:
+                seen[m] = seen[m] - 1 if seen[m] < 0 else -1
+        shown = [m for m in self.scene_warnings if seen.get(m, 0) > -self.SCENE_CLEAR]
+        for m, n in seen.items():
+            if n >= self.SCENE_CONFIRM and m not in shown:
+                shown.append(m)
+                log.info("Scene: %s (%s)", m, detail)
+                self.notify(f"⚠ {m}. If it shows in your meeting, record a new loop (R).", 12)
+        return shown
+
     def lit(self, loop_frame: np.ndarray | None) -> np.ndarray | None:
         """A loop frame as the meeting should see it: matched to the room's light (if that's on)."""
         return self.light.apply(loop_frame) if self.cfg.match_lighting else loop_frame
@@ -1113,6 +1206,7 @@ class Engine:
             other = live if self.mode == "loop" else loop_frame
             prev = self._draw_offair_overlay(prev, other, "live camera" if self.mode == "loop" else "loop")
             self._draw_outlines(prev, live, loop_frame)
+            self._draw_face_guide(prev)
         elif cfg.show_guides and self.mode == "live" and self.loop_matcher is not None:
             # Before the first cut (a loop just chosen, or BRB just opened): the loop starts from its first frame when
             # you cut, so that's the faded picture to line up with, plus the start-pose outlines.
@@ -1121,6 +1215,7 @@ class Engine:
             elif glow_amount(self.sync) >= 0.99:
                 guides.put_text(prev, "In start pose - cut is seamless", (12, 34), 0.7, brand.CV_AQUA)
             self._draw_outlines(prev, live, self.player.first_frame if self.player else None)
+            self._draw_face_guide(prev)
         if self.cut.waiting:
             guides.banner(prev, f"Hold to sync - cutting when in sync ({int(self.sync * 100)}%)", brand.CV_VIOLET)
         if self.camera_lost:
