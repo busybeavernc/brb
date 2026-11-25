@@ -1,0 +1,65 @@
+name: Update handover test
+
+# Manual: reproduces an installed copy with a downloaded update waiting, opens BRB, and watches whether the installer
+# runs and BRB reopens. Starts from an older install, swaps in a release's single-file BRB.exe (what old updaters do),
+# stages that release's BRBSetup.exe like the background updater does, then opens BRB.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release whose BRB.exe / BRBSetup.exe to use (busybeavernc/brb-public)"
+        default: latest
+      from_tag:
+        description: "Older release to install first"
+        default: v0.1.97
+
+permissions:
+  contents: read
+
+jobs:
+  handover:
+    runs-on: windows-latest
+    steps:
+      - name: Prepare an installed copy with an update waiting
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ inputs.tag }}"
+          if ($tag -eq "latest") { $tag = (gh release view -R busybeavernc/brb-public --json tagName -q .tagName) }
+          $ver = $tag.TrimStart("v")
+          gh release download "${{ inputs.from_tag }}" -R busybeavernc/brb-public -p BRBSetup.exe -D old
+          $p = Start-Process old\BRBSetup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/NOICONS','/TASKS=""' -Wait -PassThru
+          "older install exit: $($p.ExitCode)"
+          gh release download $tag -R busybeavernc/brb-public -p BRBSetup.exe -p BRB.exe -D new
+          $app = "$env:LOCALAPPDATA\Programs\BRB"
+          Copy-Item new\BRB.exe "$app\BRB.exe" -Force
+          $upd = "$env:APPDATA\BRB\updates"
+          New-Item -ItemType Directory -Force $upd | Out-Null
+          Copy-Item new\BRBSetup.exe "$upd\$ver-BRBSetup.exe"
+          Set-Content "$upd\$ver-BRBSetup.exe.ready" $ver
+          # skip the first-run agreement and guide, as on a set-up PC
+          Set-Content "$env:APPDATA\BRB\config.json" '{"eula_accepted": "1", "setup_done": true, "auto_update": true}'
+          "APP=$app" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Get-ChildItem $app, $upd | Format-Table FullName, Length
+
+      - name: Open BRB and watch
+        shell: pwsh
+        run: |
+          $log = "$env:TEMP\brb-handover.txt"
+          Start-Process "$env:APP\BRB.exe"
+          for ($i = 0; $i -lt 120; $i += 3) {
+            Start-Sleep 3
+            $procs = Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'BRB|cmd|tasklist|find|timeout|Setup' } |
+              ForEach-Object { "{0}({1}) <- {2}" -f $_.Name, $_.ProcessId, $_.ParentProcessId }
+            $lib = Test-Path "$env:APP\_internal"
+            "t+${i}s  _internal=$lib  " + ($procs -join ", ")
+            if ($lib -and -not ($procs -match 'Setup')) { break }
+          }
+          "--- install folder"; Get-ChildItem $env:APP | Format-Table Name, Length
+          "--- updates folder"; Get-ChildItem "$env:APPDATA\BRB\updates" -ErrorAction SilentlyContinue | Format-Table Name, Length
+          "--- update script"; Get-Content "$env:TEMP\brb_update.bat" -ErrorAction SilentlyContinue
+          "--- brb.log"; Get-Content "$env:APPDATA\BRB\brb.log" -ErrorAction SilentlyContinue
+          "--- brb-error.log"; Get-Content "$env:APPDATA\BRB\brb-error.log" -ErrorAction SilentlyContinue
+          "--- update log"; Get-Content "$env:APPDATA\BRB\brb-update.log" -ErrorAction SilentlyContinue
+          "--- installer log"; Get-Content "$env:APPDATA\BRB\brb-install.log" -Tail 40 -ErrorAction SilentlyContinue
