@@ -221,6 +221,10 @@ jobs:
         shell: cmd
         run: signtool sign /q /fd SHA256 /f "%SIGN_FILE%" /p "%SIGN_PASSWORD%" /tr http://timestamp.digicert.com /td SHA256 /d "BRB" dist\BRB\BRB.exe dist_onefile\BRB.exe
 
+      - name: Put the single-file app next to the installer
+        shell: pwsh
+        run: Copy-Item dist_onefile\BRB.exe dist\BRB.exe
+
       - name: Build installer
         shell: pwsh
         run: |
@@ -243,7 +247,7 @@ jobs:
         with:
           name: windows
           path: |
-            dist_onefile/BRB.exe
+            dist/BRB.exe
             dist/BRBSetup.exe
 
   mac:
