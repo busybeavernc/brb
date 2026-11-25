@@ -142,7 +142,9 @@ def test_nothing_pending(monkeypatch, tmp_path):
 
 def test_installer_script_waits_installs_quietly_and_reopens():
     bat = updater.installer_script(r"C:\u\0.1.99-BRBSetup.exe", r"C:\p\BRB\BRB.exe", 4242)
-    assert 'PID eq 4242' in bat
+    assert '(4242)' in bat
+    assert 'tasklist' not in bat and '| find' not in bat          # that pipe hung on a user's PC
+    assert r'2>nul (>>"C:\p\BRB\BRB.exe" (call )) && goto closed' in bat
     assert r'"C:\u\0.1.99-BRBSetup.exe" /SILENT /SUPPRESSMSGBOXES /NORESTART /SP- /NOCANCEL /LOG=' in bat
     assert r'start "" "C:\p\BRB\BRB.exe"' in bat
     assert bat.index("/SILENT") < bat.index('start ""')

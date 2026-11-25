@@ -297,8 +297,9 @@ def start_detached(cmd: list[str]) -> None:
     except OSError as e:
         log.info("Couldn't leave the job (%s); starting the script through Windows", e)
     line = subprocess.list2cmdline(cmd).replace("'", "''")
-    ps = ("$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
-          f"-Arguments @{{CommandLine='{line}'}}; exit $r.ReturnValue")
+    ps = ("$si = New-CimInstance -ClassName Win32_ProcessStartup -Property @{ShowWindow=[uint16]0} -ClientOnly; "
+          "$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
+          f"-Arguments @{{CommandLine='{line}'; ProcessStartupInformation=$si}}; exit $r.ReturnValue")
     try:
         r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], env=env,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=30)
@@ -323,12 +324,14 @@ echo %date% %time% waiting for BRB ({pid}) to close>"{log_file}"
 set tries=0
 :wait
 set /a tries+=1
-tasklist /fi "PID eq {pid}" 2>nul | find "{pid}" >nul || goto closed
+rem BRB has closed once its program file can be opened for writing (Windows locks a running program's file).
+rem (Not a process-list pipe: on some PCs that never returns.)
+2>nul (>>"{exe}" (call )) && goto closed
 if %tries% geq 60 goto closed
-ping -n 2 127.0.0.1 >nul
+"%SystemRoot%\\System32\\ping.exe" -n 2 127.0.0.1 >nul
 goto wait
 :closed
-echo %date% %time% installing>>"{log_file}"
+echo %date% %time% installing (waited %tries%)>>"{log_file}"
 "{setup}" {args} /LOG="{install_log}"
 echo %date% %time% installer finished: %errorlevel%>>"{log_file}"
 del "{setup}" "{setup}.ready" "{setup}.tries" >nul 2>&1
