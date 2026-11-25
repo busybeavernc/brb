@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Callable
 
+from . import helpdesk
+
 
 def start_tray(request: Callable[[str], None], version: str, state=None):
     """`state` (the App) supplies live menu contents: cameras, driver status."""
@@ -51,6 +53,7 @@ def start_tray(request: Callable[[str], None], version: str, state=None):
         item("Remove HappyHacks Virtual Camera", lambda: request("uninstall_driver"),
              visible=lambda it: driver_ok()),
         pystray.Menu.SEPARATOR,
+        item("Contact support", lambda: helpdesk.open_support(getattr(state, "lic", None))),
         item("Check for updates", lambda: request("update")),
         item(f"Version {version}", None, enabled=False),
         pystray.Menu.SEPARATOR,

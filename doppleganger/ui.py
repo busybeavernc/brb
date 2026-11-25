@@ -16,7 +16,7 @@ from tkinter import messagebox, simpledialog, ttk
 import cv2
 from PIL import Image, ImageTk
 
-from . import brand, guides, library, macos, namealert, updater, winutil
+from . import brand, guides, helpdesk, library, macos, namealert, updater, winutil
 from .brand import (AMBER, AQUA, BAD_TEXT, BORDER, CLOUD, DANGER, INK, IVORY, MIDNIGHT, MUTED, OK_TEXT, SURFACE, SURFACE_HI,
                     TEAL, TEAL_DARK, VIOLET, VIOLET_DARK, WARN_TEXT)
 from .cutcontrol import SYNC_THRESHOLD
@@ -1560,6 +1560,21 @@ class SettingsWindow:
         ttk.Button(lr, text="EULA", command=lambda: __import__("webbrowser").open(EULA_URL)).pack(side="right", padx=6)
         ttk.Button(lr, text="Privacy Policy", command=lambda: __import__("webbrowser").open(PRIVACY_URL)).pack(
             side="right")
+        lr2 = ttk.Frame(f)
+        lr2.grid(sticky="w", pady=(6, 0))
+        ttk.Button(lr2, text="Link this computer to my account", command=lambda: helpdesk.link_account(self.e.lic)).pack(
+            side="left")
+        ttk.Label(f, text="Shows this computer on brb.happyhacks.io/account, where you can move your key to a new "
+                          "computer yourself.", style="Small.TLabel", wraplength=px(420), justify="left").grid(sticky="w")
+
+        ttk.Label(f, text="Help", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
+        hr = ttk.Frame(f)
+        hr.grid(sticky="w")
+        ttk.Button(hr, text="Contact support", command=lambda: helpdesk.open_support(self.e.lic)).pack(side="left")
+        ttk.Button(hr, text="Open log folder", command=helpdesk.open_log_folder).pack(side="left", padx=(8, 0))
+        ttk.Button(hr, text="Setup guide (online)",
+                   command=lambda: __import__("webbrowser").open(f"{helpdesk.licmod.SERVER}/guide")).pack(
+            side="left", padx=(8, 0))
 
         ttk.Label(f, text="Privacy", style="Head.TLabel").grid(sticky="w", pady=(4, 2))
         self.v_mute = tk.BooleanVar(value=self.cfg.mute_mic_on_loop)

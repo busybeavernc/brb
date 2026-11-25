@@ -85,6 +85,7 @@ class LicenseGate:
         self.free_left = 0.0          # free time left after the current lease (server's number)
         self.free_total = 3600.0
         self.license_url = SERVER + "/license"
+        self.link_url = SERVER + "/account"        # "Link this computer to my account" (signed link from the server)
         self.offer = False
         self.price, self.early_price = "", ""
         self.pitch, self.offer_text = "", ""      # the license dialog's words, written by the website
@@ -309,6 +310,7 @@ class LicenseGate:
             self.free_left = float(d.get("free_left") or 0)
             self.free_total = float(d.get("free_total") or self.free_total)
             self.license_url = str(d.get("license_url") or self.license_url)
+            self.link_url = str(d.get("link_url") or self.link_url)
             self.offer = bool(d.get("offer"))
             self.price = str(d.get("price") or self.price)
             self.early_price = str(d.get("early_price") or self.early_price)

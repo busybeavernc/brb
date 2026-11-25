@@ -376,10 +376,24 @@ jobs:
           # moves them to the installer) and to run without installing. Installed copies now update with BRBSetup.exe.
           files="artifacts/BRBSetup.exe artifacts/BRB.exe installer/doppleganger-publisher.cer
             artifacts/BRBSetup.exe.sigstore.json artifacts/BRB.exe.sigstore.json"
-          gh release create "v$v" $files --title "BRB $v" --notes "$notes" --target "$GITHUB_SHA" --latest
+          # GitHub's upload service fails now and then (HTTP 500, or "already exists" after a retried upload):
+          # create a draft, upload each file with retries (--clobber replaces a half-finished one), then publish.
+          publish() {   # $1 = repo, then any extra options for creating the release
+            local repo="$1"; shift
+            gh release view "v$v" -R "$repo" >/dev/null 2>&1 || \
+              gh release create "v$v" -R "$repo" --draft --title "BRB $v" --notes "$notes" "$@"
+            for f in $files; do
+              for try in 1 2 3 4 5; do
+                gh release upload "v$v" "$f" --clobber -R "$repo" && break
+                [ $try = 5 ] && { echo "::error::couldn't upload $f to $repo"; return 1; }
+                echo "upload of $f failed (try $try) - retrying"; sleep $((try * 10))
+              done
+            done
+            gh release edit "v$v" -R "$repo" --draft=false --latest
+          }
+          publish "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
           if [ -n "$PUBLIC_TOKEN" ]; then
-            GH_TOKEN="$PUBLIC_TOKEN" gh release create "v$v" $files -R "$PUBLIC_REPO" \
-              --title "BRB $v" --notes "$notes" --latest
+            GH_TOKEN="$PUBLIC_TOKEN" publish "$PUBLIC_REPO"
           else
             echo "::warning::PUBLIC_RELEASES_TOKEN not set - release published to this repo only"
           fi
