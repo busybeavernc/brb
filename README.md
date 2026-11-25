@@ -45,7 +45,7 @@ On a Mac, text follows the system's standard size. *Settings → Text size* (or 
 Loading the AI model and opening the webcam takes a few seconds, so a splash screen with the logo shows what's happening until the window opens.
 
 ### Updates
-Each time it opens, BRB checks the releases in the public downloads repo (`update_repo` in the settings file). If there's a newer version, it shows an "Updating…" window, swaps itself out and reopens. *Settings → Updates → Check now* checks manually. An update never interrupts you while the LOOP is on air or a recording is running.
+A little while after it opens, BRB checks the releases in the public downloads repo (`update_repo` in the settings file) in the background and downloads a newer version (installed copies: `BRBSetup.exe`; a copy run without installing: `BRB.exe`). It installs the next time BRB opens (the installer runs with a small progress window, then reopens BRB), or straight away with *Settings → Updates → Restart to update*. *Settings → Updates → Check now* checks manually. An update never interrupts you while the LOOP is on air or a recording is running.
 
 ### Code signing (self-signed)
 Release files are signed with a self-signed certificate (`doppleganger-publisher.cer` is attached to each release). Windows only trusts it on PCs that choose to: tick *Trust the BRB publisher on this PC* in the installer, and Windows asks you to confirm. Other PCs still see the SmartScreen "unknown publisher" prompt (**More info → Run anyway**). A commercial code-signing certificate would remove that prompt everywhere; the build already supports one, so just swap the secrets.
