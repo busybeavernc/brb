@@ -65,10 +65,10 @@ Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Tasks: deskto
 
 [Run]
 Filename: "{sys}\certutil.exe"; Parameters: "-user -addstore Root ""{app}\doppleganger-publisher.cer"""; \
-  StatusMsg: "Trusting the BRB publisher certificate..."; Flags: runhidden waituntilterminated; Tasks: trustpublisher; \
+  StatusMsg: "Trusting the BRB publisher certificate..."; Flags: runhidden waituntilterminated skipifsilent; Tasks: trustpublisher; \
   BeforeInstall: Working('Windows will ask you to confirm the certificate.'); AfterInstall: DoneWorking
 Filename: "{sys}\certutil.exe"; Parameters: "-user -addstore TrustedPublisher ""{app}\doppleganger-publisher.cer"""; \
-  StatusMsg: "Trusting the BRB publisher certificate..."; Flags: runhidden waituntilterminated; Tasks: trustpublisher; \
+  StatusMsg: "Trusting the BRB publisher certificate..."; Flags: runhidden waituntilterminated skipifsilent; Tasks: trustpublisher; \
   BeforeInstall: Working('Almost done...'); AfterInstall: DoneWorking
 ; The HappyHacks Virtual Camera (what Zoom/Teams use). Windows asks for permission once.
 Filename: "{app}\{#MyAppExe}"; Parameters: "--install-camera"; StatusMsg: "Adding the HappyHacks Virtual Camera..."; \
