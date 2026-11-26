@@ -10,6 +10,7 @@ import os
 import sys
 import threading
 import time
+import logging
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
@@ -22,6 +23,8 @@ from .brand import (AMBER, AQUA, BAD_TEXT, BORDER, CLOUD, DANGER, INK, IVORY, MI
 from .cutcontrol import SYNC_THRESHOLD
 from .license import LAST_CALL, WARN_AT, format_left
 from .recorder import State
+
+log = logging.getLogger("doppleganger")
 
 IS_MAC = sys.platform == "darwin"
 FONT = "Segoe UI" if os.name == "nt" else ("Helvetica Neue" if IS_MAC else "Inter")
@@ -301,9 +304,10 @@ class MainWindow:
         try:
             self.root.iconbitmap(default=brand.asset("icon.ico"))
         except tk.TclError:
-            pass
+            log.warning("window icon: couldn't load icon.ico", exc_info=True)
         self._icon = ImageTk.PhotoImage(Image.open(brand.asset("icon.png")).resize((64, 64), Image.LANCZOS))
         self.root.iconphoto(True, self._icon)
+        _brand_every_window(self._icon)
         apply_theme(self.root)
         set_text_scale(self.cfg.text_scale)
         self._photo = None
@@ -1440,6 +1444,27 @@ class NameAlertControls(ttk.Frame):
                     self.test_btn.state(["!disabled"])
             self.after(0, show)
         threading.Thread(target=work, daemon=True).start()
+
+
+def _brand_every_window(icon) -> None:
+    """The BRB icon in the title bar of every window and dialog (Settings, notices, Get License Key...). Windows
+    doesn't reliably pass the main window's icon on to new ones, so each gets it as it's made."""
+    if getattr(tk.Toplevel, "_brb_icon", False):
+        tk.Toplevel._brb_icon_image = icon
+        return
+    orig = tk.Toplevel.__init__
+
+    def init(self, *a, **kw):
+        orig(self, *a, **kw)
+        try:
+            self.iconphoto(False, tk.Toplevel._brb_icon_image)
+            if sys.platform == "win32":
+                self.iconbitmap(brand.asset("icon.ico"))
+        except tk.TclError:
+            pass
+    tk.Toplevel.__init__ = init
+    tk.Toplevel._brb_icon = True
+    tk.Toplevel._brb_icon_image = icon
 
 
 class LicenseNoticePopup:
