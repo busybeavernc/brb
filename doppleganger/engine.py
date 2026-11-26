@@ -1024,11 +1024,11 @@ class Engine:
                 self.toggle_outlines()
             elif a == "rehearse":
                 self.start_rehearsal()
-            elif a == "preview_room":
-                self.cfg.preview_room = not self.cfg.preview_room
+            elif a in ("preview_blur", "preview_room"):
+                self.cfg.preview_blur = not self.cfg.preview_blur
                 self.cfg.save(self.config_path)
-                if not self.cfg.preview_room and self.seg is None:
-                    self.notify("Hiding the background needs person detection, which isn't available on this "
+                if self.cfg.preview_blur and self.seg is None:
+                    self.notify("Blurring the background needs person detection, which isn't available on this "
                                 "computer.", 8)
             elif a == "face_guide":
                 self.cfg.show_face_guide = not self.cfg.show_face_guide
@@ -1297,10 +1297,9 @@ class Engine:
         return library.lighting_warning(self.loop_light, self.live_light)
 
     # ---------- preview (drawn at the window's size, RGB for the window) ----------
-    ROOM_BACKDROP = (58, 52, 48)      # BGR: a quiet dark grey behind you when the preview hides the room
-
-    def _hide_room(self, img: np.ndarray, key: str = "base") -> np.ndarray:
-        """Preview only: keep the person, replace the room with a plain backdrop (needs person detection)."""
+    def _blur_room(self, img: np.ndarray, key: str = "base") -> np.ndarray:
+        """Preview only: keep the person sharp and blur the room behind them (needs person detection). The meeting
+        always gets the real picture."""
         if self.seg is None:
             return img
         cache = self.__dict__.setdefault("_room_masks", {})
@@ -1316,8 +1315,9 @@ class Engine:
             a = cv2.resize(prob, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_LINEAR)
             a = np.clip((cv2.GaussianBlur(a, (0, 0), 1.2) - 0.25) / 0.5, 0, 1)[..., None]
             cache[key] = (tick, img.shape[:2], a)
-        back = np.empty_like(img)
-        back[:] = self.ROOM_BACKDROP
+        h, w = img.shape[:2]                 # blur small, then scale back up: cheap, and just as soft
+        small = cv2.resize(img, (max(2, w // 4), max(2, h // 4)), interpolation=cv2.INTER_AREA)
+        back = cv2.resize(cv2.GaussianBlur(small, (0, 0), max(2.0, w / 160)), (w, h), interpolation=cv2.INTER_LINEAR)
         return (img * a + back * (1 - a)).astype(np.uint8)
 
     def _draw_offair_overlay(self, prev: np.ndarray, ghost_src: np.ndarray, label: str,
@@ -1326,8 +1326,8 @@ class Engine:
         cfg = self.cfg
         ghost = cv2.flip(ghost_src, 1) if cfg.mirror_preview else ghost_src
         ghost = cv2.resize(ghost, (prev.shape[1], prev.shape[0]), interpolation=cv2.INTER_AREA)
-        if not cfg.preview_room:
-            ghost = self._hide_room(ghost, "ghost")
+        if cfg.preview_blur:
+            ghost = self._blur_room(ghost, "ghost")
         prev = cv2.addWeighted(prev, 1 - cfg.overlay_opacity, ghost, cfg.overlay_opacity, 0)
         h, w = prev.shape[:2]
         if self.sync >= SYNC_THRESHOLD:
@@ -1372,9 +1372,8 @@ class Engine:
             shown = self._rehearsal_frame(out, live, loop_frame)
             if shown is not None:
                 return cv2.cvtColor(shown, cv2.COLOR_BGR2RGB)
-        hide_room = not cfg.preview_room and not recording and self.calibrator is None
-        if hide_room:
-            prev = self._hide_room(prev)
+        if cfg.preview_blur and not recording and self.calibrator is None:
+            prev = self._blur_room(prev)
         if self.calibrator is not None:
             self._draw_calibration(prev)
         elif self.recorder.state == State.PROCESSING:
@@ -1463,8 +1462,8 @@ class Engine:
         prev = cv2.flip(frame, 1) if cfg.mirror_preview else frame
         w, h = self.preview_size
         prev = cv2.resize(prev, (max(2, w), max(2, h)), interpolation=cv2.INTER_AREA)
-        if not cfg.preview_room:
-            prev = self._hide_room(prev, "rehearsal")
+        if cfg.preview_blur:
+            prev = self._blur_room(prev, "rehearsal")
         guides.banner(prev, f"REHEARSAL - not on air:  {label}  ({mode.upper()})", brand.CV_VIOLET)
         hh, ww = prev.shape[:2]
         cv2.rectangle(prev, (0, 0), (ww - 1, hh - 1), brand.CV_VIOLET if mode == "loop" else brand.CV_AQUA_DARK,

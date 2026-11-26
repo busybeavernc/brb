@@ -69,7 +69,7 @@ class Config:
     voice_profile: str = ""             # voice name ("" = the default voice)
     meeting_chimes: bool = False        # soft chime on each cut (a meeting microphone may pick it up)
     scene_checks: bool = True           # warn if the camera moved, the background or your clothes changed
-    preview_room: bool = False          # preview shows the room behind you (off - the default: just you, plainly)
+    preview_blur: bool = True           # preview blurs the room behind you (on - the default: less distracting)
     name_alerts: bool = False           # while on the LOOP: alert me if someone says my name (namealert.py)
     alert_names: str = ""               # "Jim, Jimmy, Jim Smith"
     alert_sensitivity: str = "normal"   # low / normal / high

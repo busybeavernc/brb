@@ -429,9 +429,9 @@ class MainWindow:
         self.v_badge = tk.BooleanVar(value=self.cfg.loop_badge)
         Toggle(side, text="BRB Watermark", variable=self.v_badge,
                command=lambda: self.e.request("badge"), wraplength=px(290)).grid(sticky="w", pady=(6, 0))
-        self.v_room = tk.BooleanVar(value=self.cfg.preview_room)
-        Toggle(side, text="Background", variable=self.v_room,
-               command=lambda: self.e.request("preview_room"), wraplength=px(290)).grid(sticky="w", pady=(6, 0))
+        self.v_room = tk.BooleanVar(value=self.cfg.preview_blur)
+        Toggle(side, text="Blur background", variable=self.v_room,
+               command=lambda: self.e.request("preview_blur"), wraplength=px(290)).grid(sticky="w", pady=(6, 0))
 
         # --- cut ---
         self.cut_btn = HoldButton(side, self.e)
@@ -768,8 +768,8 @@ class MainWindow:
             self.v_badge.set(self.cfg.loop_badge)
         if self.v_face.get() != self.cfg.show_face_guide:
             self.v_face.set(self.cfg.show_face_guide)
-        if self.v_room.get() != self.cfg.preview_room:
-            self.v_room.set(self.cfg.preview_room)
+        if self.v_room.get() != self.cfg.preview_blur:
+            self.v_room.set(self.cfg.preview_blur)
         self._refresh_license()
         warns = ([e.lighting_warning] if e.lighting_warning else []) + list(e.scene_warnings)
         text = ("⚠ " + " · ".join(warns)) if warns else ""
