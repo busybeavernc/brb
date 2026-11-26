@@ -790,18 +790,45 @@ class Engine:
                                al.hint if al else ("Look at the camera" if live is None else None),
                                self.cfg.mirror_preview, brand.CV_VIOLET, brand.CV_AQUA)
 
+    def _ensure_tracer(self) -> bool:
+        """The person outline finder (AI detection, else the calibrated room). False if neither is available."""
+        if self.seg is not None:
+            if self._tracer is None or self._tracer.segmenter is None:
+                self._tracer = OutlineTracer(segmenter=self.seg)
+            return True
+        if self.background is None:
+            return False
+        if self._tracer is None or self._tracer_bg is not self.background:
+            self._tracer, self._tracer_bg = OutlineTracer(self.background), self.background
+        return True
+
+    def _draw_sync_glow(self, prev: np.ndarray, live: np.ndarray) -> None:
+        """A green glow around you when the cut would be seamless - the same signal as at the end of recording a
+        loop. Fades in as you get close (glow_amount), full at the seamless point."""
+        amount = glow_amount(self.sync)
+        if amount <= 0 or not self._ensure_tracer():
+            return
+        h, w = prev.shape[:2]
+        contour = self._tracer.contour(live, (w, h), self.cfg.mirror_preview, "live")
+        if contour is None:
+            return
+        bold = 2 if self.compact_preview else 1
+        glow = np.zeros_like(prev)
+        cv2.drawContours(glow, [contour], -1, brand.CV_AQUA, max(8, w // 55) * bold, cv2.LINE_AA)
+        glow = cv2.GaussianBlur(glow, (0, 0), max(4, w / 110) * bold)
+        glow = cv2.add(glow, glow)
+        inside = np.zeros((h, w), np.uint8)
+        cv2.drawContours(inside, [contour], -1, 255, -1)
+        glow[inside > 0] = 0                                   # around you, not over you
+        cv2.addWeighted(prev, 1.0, glow, float(amount), 0, dst=prev)
+
     def _draw_outlines(self, prev: np.ndarray, live: np.ndarray, other: np.ndarray | None) -> None:
         """Green = you now, apricot = the loop. Overlapping lines = in sync."""
         if not self.cfg.show_outlines:
             return
-        if self.seg is not None:
-            if self._tracer is None or self._tracer.segmenter is None:
-                self._tracer = OutlineTracer(segmenter=self.seg)
-        elif self.background is None:
+        if not self._ensure_tracer():
             guides.put_text(prev, "Outlines: calibrate this webcam to see them", (12, prev.shape[0] - 14), 0.45)
             return
-        elif self._tracer is None or self._tracer_bg is not self.background:
-            self._tracer, self._tracer_bg = OutlineTracer(self.background), self.background
         size = (prev.shape[1], prev.shape[0])
         mirrored = self.cfg.mirror_preview
         # In the Mini Bar the preview is shrunk a lot: draw the lines bolder so they stay easy to see
@@ -1310,6 +1337,9 @@ class Engine:
                 guides.put_text(prev, "In start pose - cut is seamless", (12, 34), 0.7, brand.CV_AQUA)
             self._draw_outlines(prev, live, self.player.first_frame if self.player else None)
             self._draw_face_guide(prev)
+        if not recording and self.calibrator is None and self.recorder.state != State.PROCESSING and (
+                self.loop_running or (self.mode == "live" and self.loop_matcher is not None)):
+            self._draw_sync_glow(prev, live)
         if self.cut.waiting:
             guides.banner(prev, f"Hold to sync - cutting when in sync ({int(self.sync * 100)}%)", brand.CV_VIOLET)
         if self.camera_lost:
