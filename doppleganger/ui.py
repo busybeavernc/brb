@@ -442,18 +442,14 @@ class MainWindow:
 
         row = ttk.Frame(side)
         row.grid(sticky="ew", pady=(10, 0))
-        for i in range(3):
+        for i in range(2):
             row.columnconfigure(i, weight=1)
         vk = self.cfg.view_hotkey.strip("<>").upper()
         ttk.Button(row, text=f"Mini Bar ({vk})", command=self.show_minibar).grid(
             row=0, column=0, sticky="ew", padx=(0, 4))
         self.rec_btn = ttk.Button(row, text="Record loop (R)", command=lambda: self.e.request("record"))
-        self.rec_btn.grid(row=0, column=1, sticky="ew", padx=4)
-        if self.e.seg is None:  # AI segmentation unavailable: calibration is needed, keep it handy
-            ttk.Button(row, text="Calibrate", command=lambda: self.e.request("calibrate")).grid(
-                row=0, column=2, sticky="ew", padx=(4, 0))
-        else:
-            row.columnconfigure(2, weight=0)
+        self.rec_btn.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+        # (Room calibration - the fallback when AI person detection isn't available - is in Settings > Camera.)
 
         ttk.Separator(side).grid(sticky="ew", pady=12)
 
@@ -1923,7 +1919,7 @@ class SettingsWindow:
 
 class MiniBar:
     """Compact always-on-top window to park beside Zoom: just the preview - as big as possible, for lining up -
-    with small controls on top of it (BRB mark top left = drag handle, cut and Full view under the ON AIR sign,
+    with small controls on top of it (BRB mark bottom left = drag handle, cut and Full view under the ON AIR sign,
     the sync meter along the bottom)."""
 
     def __init__(self, main: MainWindow):
@@ -1945,7 +1941,7 @@ class MiniBar:
         self.thumb.place(x=0, y=0, relwidth=1, relheight=1)
         self._mark = _photo(brand.asset("icon.png"), px(22))
         grip = tk.Label(f, image=self._mark, bg=MIDNIGHT, bd=0, cursor="fleur")
-        grip.place(x=px(8), y=px(8))
+        grip.place(x=px(8), rely=1.0, y=-px(14), anchor="sw")          # bottom left, just above the sync meter
         self.cut = HoldButton(f, self.e, font_size=9)
         self.cut.configure(padx=8, pady=3)
         self.cut.place(relx=1.0, x=-px(10), y=px(38), anchor="ne")
@@ -2004,7 +2000,7 @@ class MiniBar:
         if left is not None and left <= WARN_AT:            # free time running out: a small amber note
             self.left_lbl.configure(text=f"{format_left(left)} left")
             if not self.left_lbl.winfo_ismapped():
-                self.left_lbl.place(x=px(8), rely=1.0, y=-px(12), anchor="sw")
+                self.left_lbl.place(x=px(8), y=px(8))
         elif self.left_lbl.winfo_ismapped():
             self.left_lbl.place_forget()
         insync = e.sync >= SYNC_THRESHOLD
@@ -2025,7 +2021,9 @@ class Wizard:
     def __init__(self, main: MainWindow):
         self.main = main
         self.e = main.e
-        if self.e.seg is not None:  # AI detection finds you without calibrating the room
+        # AI detection finds you without calibrating the room. (It may still be loading when the guide opens at
+        # start-up: count on it then - if it fails, calibration is in Settings > Camera.)
+        if self.e.seg is not None or getattr(self.e, "starting", False):
             self.STEPS = tuple(s for s in self.STEPS if s != "calibrate")
         if IS_MAC:  # macOS privacy permissions get their own page, right after the OBS camera
             self.STEPS = ("welcome", "camera", "permissions") + tuple(
