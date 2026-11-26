@@ -33,7 +33,7 @@ log = logging.getLogger("doppleganger")
 SERVER = "https://brb.happyhacks.io"
 # The site's license-signing public keys (https://brb.happyhacks.io/api/v1/license/public-key). More than one
 # while a key is being replaced. Empty = don't require signatures (only until the site's key is published).
-PUBLIC_KEYS: list[str] = []
+PUBLIC_KEYS: list[str] = ["a7jxMB/o06iGfnDUXX35CkJyPIu7MvayAxzgSOYzkFQ="]   # brb.happyhacks.io, 2026-11-25
 STATUS_EVERY = 300.0    # recheck the license this often (s)
 WATCH_EVERY = 5.0       # ...and this often after "Get Unlimited Access Now", until the purchase shows up
 WATCH_FOR = 20 * 60.0   # (for up to 20 minutes)
