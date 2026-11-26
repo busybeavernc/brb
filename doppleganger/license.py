@@ -9,6 +9,9 @@
     period (the server says how long: 20 minutes) - time to cut back to LIVE when it suits, or to buy a key. If the
     license server can't be reached once the LOOP is on air, it stays on air until the person cuts back. Either way,
     once the LOOP is off air it can't go back on without time from the server.
+  - Licensed computers keep working when the site is down: every reply gives them a signed *offline pass* for this
+    computer, good for 14 days (the site decides) or until the license ends. Free time is only ever counted by the
+    server, so free computers need it.
 
 The server's address is built in (not a setting), and every reply must carry the server's signature (Ed25519, public
 key below), answer this request's random nonce and name this computer. So a look-alike server - even one trusted
@@ -43,6 +46,8 @@ WATCH_EVERY = 5.0       # ...and this often after "Get Unlimited Access Now", un
 WATCH_FOR = 20 * 60.0   # (for up to 20 minutes)
 RENEW_BEFORE = 15.0     # renew a lease when this little of it is left (s)
 START_GRACE = 8.0       # after cutting to the LOOP, the server must answer within this (s)
+UNREACHABLE = "Can't reach BRB's license server right now - check your internet connection, or try again in a few minutes."
+PASS_PREFIX = b"BRB-OFFLINE-PASS\n"
 WARN_AT = 300.0         # "5 minutes of free LOOP time left"
 LAST_CALL = 60.0        # "1 minute left"
 GRACE = 1200.0          # on air when the free time runs out: stays on air this long (the server can change it)
@@ -96,6 +101,7 @@ def format_left(seconds: float) -> str:
 class LicenseGate:
     _system_certs = False
     grace_until, offline, refusal, had_lease, grace_total = 0.0, False, "", False, GRACE
+    status_every = STATUS_EVERY
     def __init__(self, cfg, save, version: str = "", transport=None):
         self.cfg, self._save, self.version = cfg, save, version
         self._post = transport or self._http_post
@@ -110,6 +116,8 @@ class LicenseGate:
         self.plan = "free"
         self.free_left = 0.0          # free time left after the current lease (server's number)
         self.free_total = 3600.0
+        self.status_every = STATUS_EVERY   # the site's check_every
+        self.pass_until = 0.0         # offline pass good until (time.time()), 0 = none
         self.grace_total = GRACE      # the server's grace_seconds
         self.license_url = SERVER + "/license"
         self.link_url = SERVER + "/account"        # "Link this computer to my account" (signed link from the server)
@@ -134,6 +142,8 @@ class LicenseGate:
         self._last_status = 0.0
         self._watch_until = 0.0       # watching for a purchase until then (time.monotonic())
         self._warned = False
+        if self.offline_ok():      # licensed: works right away, even if the site is down
+            self.known = self.unlimited = True
         threading.Thread(target=self._worker, daemon=True, name="license").start()
         self.refresh()
 
@@ -145,11 +155,75 @@ class LicenseGate:
     def has_key(self) -> bool:
         return self.unlimited
 
+    # ---------- offline pass ----------
+    def offline_ok(self) -> bool:
+        """A valid offline pass: signed by the site, for this computer, not expired (by the computer's clock, which
+        mustn't be behind the latest time seen from the site)."""
+        raw = getattr(self.cfg, "license_pass", "") or ""
+        if not raw:
+            self.pass_until = 0.0
+            return False
+        cached = getattr(self, "_pass_check", None)
+        if cached is None or cached[0] != raw:    # checking the signature takes a few ms: once per pass, not per frame
+            info = None
+            try:
+                p = json.loads(raw)
+                body, sig = str(p["body"]), base64.b64decode(p["sig"], validate=True)
+                info = json.loads(body)
+                if self._require_signed and not any(
+                        ed25519.verify(base64.b64decode(k), PASS_PREFIX + body.encode(), sig) for k in PUBLIC_KEYS):
+                    info = None
+                elif not isinstance(info, dict) or info.get("device_id") != device.device_id():
+                    info = None
+            except (ValueError, KeyError, TypeError):
+                info = None
+            self._pass_check = cached = (raw, info)
+        info = cached[1]
+        if info is None:
+            return False
+        now = time.time()
+        seen = float(getattr(self.cfg, "license_clock", 0) or 0)
+        if now < seen - 2 * 3600:                 # the clock was set back
+            return False
+        until = float(info.get("until") or 0)
+        self.pass_until = until
+        return now < until
+
+    def _keep_pass(self, d: dict) -> None:
+        """Every reply from the site: keep (or drop) this computer's offline pass, and the site's clock."""
+        changed = False
+        server_time = float(d.get("server_time") or 0)
+        if server_time > float(getattr(self.cfg, "license_clock", 0) or 0):
+            self.cfg.license_clock = server_time
+        if d.get("unlimited") and "offline_pass" not in d:
+            p = None
+            if changed:
+                self._save()
+            return                                # a reply without the pass field (an older site): keep what we have
+        p = d.get("offline_pass")
+        new = json.dumps(p, separators=(",", ":"), sort_keys=True) if isinstance(p, dict) else ""
+        if not d.get("unlimited"):
+            new = ""                              # no license (any more): no pass
+        if new != (getattr(self.cfg, "license_pass", "") or ""):
+            self.cfg.license_pass = new
+            changed = True
+        if changed:
+            self._save()
+
+    @property
+    def on_pass(self) -> bool:
+        """Licensed and working from the offline pass (the site can't be reached)."""
+        return self.unlimited and not self.online and self.offline_ok()
+
     def can_start(self) -> tuple[bool, str]:
         """May the LOOP go on air now? -> (yes, why not)."""
+        if self.unlimited and (self.online or self.offline_ok()):
+            return True, ""
         if not self.known:
-            return False, ("BRB needs an internet connection to check your license before using the LOOP."
-                           if not self.online and self._last_status else "Checking your license - one moment.")
+            return False, (UNREACHABLE if not self.online and self._last_status else
+                           "Checking your license - one moment.")
+        if not self.online and self._last_status:
+            return False, UNREACHABLE
         if self.unlimited:
             return True, ""
         if self.free_left <= 0.5:
@@ -189,15 +263,17 @@ class LicenseGate:
             return "" if self.grace_total > 0 else "Your free LOOP time is used up."
         server_trouble = (self.lease_refused and self.refusal == "server") or \
             (self.lease_until and now >= self.lease_until + 2)
+        if (server_trouble or not self.lease_until) and self.unlimited and self.offline_ok():
+            return ""                # licensed: the offline pass covers it, nothing to tell
         if server_trouble:
             if self.had_lease:       # on air already: stays on air until the person cuts back to LIVE
                 if not self.offline:
                     log.info("License server unreachable on air: the LOOP stays on until you cut back to LIVE")
                 self.offline = True
                 return ""
-            return self.message or "Couldn't reach brb.happyhacks.io - the LOOP needs internet."
+            return UNREACHABLE
         if not self.lease_until and self.started_at and now - self.started_at > START_GRACE:
-            return self.message or "Couldn't reach brb.happyhacks.io - the LOOP needs internet."
+            return UNREACHABLE
         return ""
 
     def events(self) -> list[str]:
@@ -244,14 +320,15 @@ class LicenseGate:
                 self.had_lease = False
                 self.grace_until, self.offline = 0.0, False
                 self._fired = set()
-                self._ask("lease", "start")
+                if not (self.unlimited and self.offline_ok()):   # licensed with a pass: nothing to lease
+                    self._ask("lease", "start")
             elif self.grace_until and self.unlimited and not self.lease_pending:
                 # bought a key during the grace period: back to an ordinary (unlimited) lease
                 self.grace_until, self.lease_refused, self.refusal = 0.0, False, ""
                 self.started_at, self.lease_until, self.final_lease = now, 0.0, False
                 self._ask("lease", "start")
             elif (self.lease_until and not self.lease_pending and not self.final_lease
-                  and self.lease_until - now < RENEW_BEFORE and now - self._last_ask > 3):
+                  and self.lease_until - now < RENEW_BEFORE and now - self._last_ask > (3 if self.online else 30)):
                 self._ask("lease", "renew")
         elif self.started_at:      # off air: any grace ends here - going back on air needs time from the server
             self.started_at = 0.0
@@ -264,7 +341,7 @@ class LicenseGate:
         watching = now < self._watch_until and not self.unlimited
         if watching and now - self._last_status > WATCH_EVERY:
             self.refresh()   # a status check charges nothing, so it's fine with the LOOP on air too
-        elif now - self._last_status > STATUS_EVERY and not on:
+        elif now - self._last_status > self.status_every and not on:
             self.refresh()
 
     def watch_for_purchase(self) -> None:
@@ -398,7 +475,8 @@ class LicenseGate:
                     self.lease_until = sent_at + secs
                     self.had_lease = True
                     self.lease_refused, self.refusal, self.offline = False, "", False
-                    self.final_lease = not self.unlimited and secs < 29   # less than a full lease: the last of the free time
+                    # nothing left after this lease: the last of the free time (runs out, no renewal)
+                    self.final_lease = not self.unlimited and float(data.get("free_left") or 0) <= 0.5
                 else:                 # cut back to LIVE meanwhile: give it back
                     self._q.put(("lease", "release"))
             else:
@@ -407,12 +485,17 @@ class LicenseGate:
                 self.message = str(data.get("message") or "Your free LOOP time is used up.")
 
     def _apply(self, d: dict) -> None:
+        self._keep_pass(d)
         with self._lock:
             self.known = True
             self.unlimited = bool(d.get("unlimited"))
             self.plan = str(d.get("plan") or "free")
             self.free_left = float(d.get("free_left") or 0)
             self.free_total = float(d.get("free_total") or self.free_total)
+            try:
+                self.status_every = max(60.0, min(3600.0, float(d.get("check_every") or STATUS_EVERY)))
+            except (TypeError, ValueError):
+                pass
             if d.get("grace_seconds") is not None:
                 try:
                     self.grace_total = max(0.0, min(4 * 3600.0, float(d["grace_seconds"])))
@@ -441,6 +524,9 @@ class LicenseGate:
         if not self.known:
             return "License: checking..." if self.online or not self._last_status else "License: offline"
         if self.unlimited:
+            if self.on_pass:
+                return (f"Unlimited license (offline until "
+                        f"{time.strftime('%b %d', time.localtime(self.pass_until)).replace(' 0', ' ')})")
             return "Unlimited license" + (" (subscription)" if self.plan == "subscription" else "")
         r = self.remaining() or 0
         if r <= 0.5:

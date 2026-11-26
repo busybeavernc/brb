@@ -151,7 +151,7 @@ def test_offline_means_no_loop():
     _wait(lambda: g._q.empty(), 1)
     time.sleep(0.05)
     ok, why = g.can_start()
-    assert not ok and 'internet' in why
+    assert not ok and 'license server' in why
 
 
 def test_lost_connection_on_air_keeps_the_loop_until_you_cut_back():
@@ -374,3 +374,86 @@ def test_an_unsigned_lease_is_refused(monkeypatch):
     g._body = lambda **k: {}
     g._call("lease", "start")
     assert g.lease_refused and g.refusal == "server" and "genuine" in g.message
+
+
+def _pass_for(priv, dev, until, plan='unlimited'):
+    import base64 as b64, json
+    body = json.dumps({'device_id': dev, 'plan': plan, 'issued': 0, 'until': until}, separators=(',', ':'),
+                      sort_keys=True)
+    return json.dumps({'body': body, 'sig': b64.b64encode(priv.sign(L.PASS_PREFIX + body.encode())).decode()})
+
+
+def _key(monkeypatch):
+    import base64 as b64
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    priv = Ed25519PrivateKey.generate()
+    pub = priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    monkeypatch.setattr(L, 'PUBLIC_KEYS', [b64.b64encode(pub).decode()])
+    return priv
+
+
+def _offline_gate(cfg):
+    g = LicenseGate(cfg, lambda: None, '0.1.0', transport=FakeServer(online=False))
+    g._require_signed = True
+    g._pass_check = None
+    return g
+
+
+def test_licensed_computer_works_with_the_site_down(monkeypatch):
+    priv = _key(monkeypatch)
+    cfg = SimpleNamespace(license_key='K', license_clock=0.0,
+                          license_pass=_pass_for(priv, device.device_id(), time.time() + 86400))
+    g = _offline_gate(cfg)
+    assert g.offline_ok()
+    g.known = g.unlimited = True
+    _wait(lambda: g._q.empty(), 1); time.sleep(0.05)
+    assert g.can_start() == (True, '')
+    g.on_air(True)
+    g.started_at = time.monotonic() - L.START_GRACE - 1   # no lease ever came: the pass covers it
+    assert g.must_stop() == '' and not g.offline
+    assert 'offline until' in g.summary()
+
+
+def test_offline_pass_refused_when_forged_expired_for_another_pc_or_clock_set_back(monkeypatch):
+    priv = _key(monkeypatch)
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    dev = device.device_id()
+    for raw, clock in [(_pass_for(Ed25519PrivateKey.generate(), dev, time.time() + 86400), 0.0),   # not the site's
+                       (_pass_for(priv, dev, time.time() - 1), 0.0),                                # expired
+                       (_pass_for(priv, 'b' * 64, time.time() + 86400), 0.0),                       # another computer
+                       (_pass_for(priv, dev, time.time() + 86400), time.time() + 5 * 86400),        # clock set back
+                       ('{"body": "x"}', 0.0)]:
+        g = _offline_gate(SimpleNamespace(license_key='K', license_clock=clock, license_pass=raw))
+        assert not g.offline_ok()
+
+
+def test_free_computer_with_the_site_down_gets_a_clear_message():
+    g = gate(FakeServer(online=False))
+    _wait(lambda: g._q.empty(), 1); time.sleep(0.05)
+    ok, why = g.can_start()
+    assert not ok and "license server" in why
+
+
+def test_pass_is_kept_and_dropped_with_the_license():
+    cfg = SimpleNamespace(license_key='', license_pass='', license_clock=0.0)
+    g = LicenseGate.__new__(LicenseGate)
+    g.cfg, g._save = cfg, lambda: None
+    g._keep_pass({'unlimited': True, 'server_time': 100.0, 'offline_pass': {'body': 'b', 'sig': 's'}})
+    assert '"body":"b"' in cfg.license_pass and cfg.license_clock == 100.0
+    g._keep_pass({'unlimited': False, 'server_time': 50.0})
+    assert cfg.license_pass == '' and cfg.license_clock == 100.0
+
+
+def test_licensed_with_a_pass_leases_nothing(monkeypatch):
+    priv = _key(monkeypatch)
+    srv = FakeServer(unlimited=True)
+    cfg = SimpleNamespace(license_key='K', license_clock=0.0,
+                          license_pass=_pass_for(priv, device.device_id(), time.time() + 86400))
+    g = LicenseGate(cfg, lambda: None, '0.1.0', transport=srv)
+    g._require_signed, g._pass_check = True, None
+    _wait(lambda: g._q.empty(), 1)
+    g.on_air(True)
+    time.sleep(0.1)
+    assert not any(a in ('start', 'renew') for _p, a in srv.calls)
+    assert g.must_stop() == ''

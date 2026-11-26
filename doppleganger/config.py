@@ -47,6 +47,8 @@ class Config:
     update_token: str = ""              # read-only GitHub token, needed only while the repo is private
     eula_accepted: str = ""             # EULA version accepted (asked again only when the EULA changes)
     license_key: str = ""               # Doppleganger license key (checked with brb.happyhacks.io)
+    license_pass: str = ""              # licensed computers: the site's signed offline pass (license.py), JSON
+    license_clock: float = 0.0          # latest time seen from the site (a computer clock set back can't stretch a pass)
 
     # Privacy
     mute_mic_on_loop: bool = True       # silence: mute the PC's microphones while the LOOP is on air
