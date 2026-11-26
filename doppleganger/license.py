@@ -102,6 +102,7 @@ class LicenseGate:
     _system_certs = False
     grace_until, offline, refusal, had_lease, grace_total = 0.0, False, "", False, GRACE
     status_every = STATUS_EVERY
+    need_account, notice = False, ""
     def __init__(self, cfg, save, version: str = "", transport=None):
         self.cfg, self._save, self.version = cfg, save, version
         self._post = transport or self._http_post
@@ -226,6 +227,8 @@ class LicenseGate:
             return False, UNREACHABLE
         if self.unlimited:
             return True, ""
+        if self.need_account:
+            return False, self.notice
         if self.free_left <= 0.5:
             return False, "Your free LOOP time is used up. Click Get License Key for unlimited use."
         return True, ""
@@ -398,7 +401,8 @@ class LicenseGate:
 
     def _body(self, **extra) -> dict:
         return {"device_id": device.device_id(), "device_name": device.device_name(), "platform": device.platform_name(),
-                "app_version": self.version, "key": self.key, "nonce": secrets.token_urlsafe(18), **extra}
+                "app_version": self.version, "key": self.key, "nonce": secrets.token_urlsafe(18),
+                "vm": device.is_virtual_machine(), **extra}
 
     def _http_post(self, path: str, body: dict) -> tuple[int, dict]:
         url = server() + path
@@ -491,6 +495,8 @@ class LicenseGate:
             self.unlimited = bool(d.get("unlimited"))
             self.plan = str(d.get("plan") or "free")
             self.free_left = float(d.get("free_left") or 0)
+            self.need_account = bool(d.get("need_account"))   # in a virtual machine: sign in to use free time
+            self.notice = str(d.get("notice") or "")
             self.free_total = float(d.get("free_total") or self.free_total)
             try:
                 self.status_every = max(60.0, min(3600.0, float(d.get("check_every") or STATUS_EVERY)))
@@ -528,6 +534,8 @@ class LicenseGate:
                 return (f"Unlimited license (offline until "
                         f"{time.strftime('%b %d', time.localtime(self.pass_until)).replace(' 0', ' ')})")
             return "Unlimited license" + (" (subscription)" if self.plan == "subscription" else "")
+        if self.need_account:
+            return "Virtual machine: link this computer to your account for free time"
         r = self.remaining() or 0
         if r <= 0.5:
             return "Free LOOP time used up"

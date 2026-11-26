@@ -52,6 +52,63 @@ def smbios_uuid_from_table(raw: bytes) -> str | None:
     return None
 
 
+VM_MARKERS = ("vmware", "virtualbox", "innotek", "qemu", "kvm", "xen", "parallels", "bochs", "bhyve",
+              "virtual machine", "hyper-v", "amazon ec2", "google compute engine", "openstack", "standard pc (q35")
+
+
+def smbios_system_strings(raw: bytes) -> str:
+    """The system's manufacturer / product name / version (SMBIOS type 1), lower-case, for spotting virtual machines."""
+    if len(raw) < 8:
+        return ""
+    data = bytes(raw[8:8 + int.from_bytes(raw[4:8], "little")])
+    i = 0
+    while i + 4 <= len(data):
+        typ, length = data[i], data[i + 1]
+        if length < 4:
+            break
+        end = data.find(b"\0\0", i + length)        # the strings section ends with a double NUL
+        if end < 0:
+            break
+        strings = data[i + length:end].split(b"\0") if end > i + length else []
+        if typ == 1:
+            refs = [data[i + o] for o in (4, 5, 6) if o < length]   # manufacturer, product, version
+            return " | ".join(strings[r - 1].decode("latin-1", "replace") for r in refs
+                              if 0 < r <= len(strings)).lower()
+        if typ == 127:
+            break
+        i = end + 2
+    return ""
+
+
+_vm: bool | None = None
+
+
+def is_virtual_machine() -> bool:
+    """Running in a virtual machine? (Each one looks like a new computer, so free time there needs an account.)
+    From the firmware's system name (not the CPU's hypervisor flag: that's also set on real PCs with Windows security
+    features such as Core Isolation)."""
+    global _vm
+    if _vm is None:
+        _vm = False
+        try:
+            if os.name == "nt":
+                k32 = ctypes.windll.kernel32
+                size = k32.GetSystemFirmwareTable(0x52534D42, 0, None, 0)
+                if size:
+                    buf = ctypes.create_string_buffer(size)
+                    if k32.GetSystemFirmwareTable(0x52534D42, 0, buf, size):
+                        name = smbios_system_strings(buf.raw)
+                        _vm = any(m in name for m in VM_MARKERS)
+            elif sys.platform == "darwin":
+                out = subprocess.run(["sysctl", "-n", "kern.hv_vmm_present"], capture_output=True, timeout=5).stdout
+                _vm = out.strip() == b"1"
+        except Exception as e:  # noqa: BLE001
+            log.info("virtual machine check unavailable: %s", e)
+        if _vm:
+            log.info("Running in a virtual machine")
+    return _vm
+
+
 def _windows() -> str | None:
     try:
         k32 = ctypes.windll.kernel32

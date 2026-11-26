@@ -458,3 +458,26 @@ def test_licensed_with_a_pass_leases_nothing(monkeypatch):
     time.sleep(0.1)
     assert not any(a in ('start', 'renew') for _p, a in srv.calls)
     assert g.must_stop() == ''
+
+
+def test_virtual_machine_spotted_from_the_firmware_name():
+    u = uuid.UUID('4c4c4544-0042-3510-8051-b4c04f4e3432')
+    assert device.smbios_system_strings(_smbios(u.bytes_le)) == 'maker | model'
+    t1 = bytes([1, 0x1B, 1, 0, 1, 2, 0, 0]) + u.bytes_le + bytes(3) + b'VMware, Inc.\0VMware Virtual Platform\0\0'
+    data = t1 + bytes([127, 4, 0, 0]) + b'\0\0'
+    raw = bytes([0, 3, 4, 0]) + struct.pack('<I', len(data)) + data
+    name = device.smbios_system_strings(raw)
+    assert any(m in name for m in device.VM_MARKERS)
+    assert device.smbios_uuid_from_table(raw) == str(u)          # the id is read the same way
+    assert not any(m in 'dell inc. | xps 15 9530' for m in device.VM_MARKERS)
+
+
+def test_vm_notice_blocks_free_time_with_a_clear_message():
+    g = LicenseGate.__new__(LicenseGate)
+    g.known, g.online, g.unlimited, g.free_left, g._last_status = True, True, False, 0.0, 1.0
+    g.need_account, g.notice = True, 'BRB is running in a virtual machine...'
+    g.cfg = SimpleNamespace(license_pass='', license_key='')
+    g._require_signed = False
+    ok, why = g.can_start()
+    assert not ok and 'virtual machine' in why
+    assert 'Virtual machine' in g.summary()
