@@ -20,7 +20,7 @@ from . import brand, guides, helpdesk, library, macos, namealert, updater, winut
 from .brand import (AMBER, AQUA, BAD_TEXT, BORDER, CLOUD, DANGER, INK, IVORY, MIDNIGHT, MUTED, OK_TEXT, SURFACE, SURFACE_HI,
                     TEAL, TEAL_DARK, VIOLET, VIOLET_DARK, WARN_TEXT)
 from .cutcontrol import SYNC_THRESHOLD
-from .license import WARN_AT, format_left
+from .license import LAST_CALL, WARN_AT, format_left
 from .recorder import State
 
 IS_MAC = sys.platform == "darwin"
@@ -786,6 +786,16 @@ class MainWindow:
                 self.name_popup = None
             if e.name_alert is not None:
                 self.name_popup = NameAlertPopup(self, e.name_alert)
+        if getattr(self, "_lic_seq", 0) != e.lic_notice_seq:   # free time running out on air
+            self._lic_seq = e.lic_notice_seq
+            if getattr(self, "lic_popup", None) is not None:
+                self.lic_popup.close()
+            if e.lic_notice and e.lic_notice[0] != "offline" and self.minibar is not None and self.minibar.visible:
+                self.show_main()   # free time running out: back to the full window, where the details and buttons are
+            self.lic_popup = LicenseNoticePopup(self, *e.lic_notice) if e.lic_notice else None
+        if getattr(self, "lic_popup", None) is not None and e.mode == "live" and self.lic_popup.on_air_only:
+            self.lic_popup.close()
+            self.lic_popup = None
         if e.names.problem:
             problem, e.names.problem = e.names.problem, ""
             e.notify(problem, 10)
@@ -840,6 +850,14 @@ class MainWindow:
         if not lic.known:   # no answer from the license server yet: don't claim the free time is used up
             self.lic_lbl.configure(text=lic.summary() if lic.online or not lic.message else lic.message,
                                    fg=WARN_TEXT if lic.message else MUTED, font=F(9))
+        elif on_air and lic.grace_left() is not None:
+            g = lic.grace_left()
+            self.lic_lbl.configure(text=f"⏱ Free time used up - back to LIVE in {format_left(g)}" if g <= LAST_CALL
+                                   else "⏱ Free time used up - BRB cuts back to LIVE soon. Get a license key to stay on air",
+                                   fg=BAD_TEXT if g <= LAST_CALL else WARN_TEXT, font=F(10, "bold"))
+        elif on_air and lic.offline:
+            self.lic_lbl.configure(text="License server unreachable - your LOOP stays on until you cut to LIVE",
+                                   fg=WARN_TEXT, font=F(9, "bold"))
         elif left is not None and left <= WARN_AT and (on_air or left <= 0.5):
             text = (f"⏱ {format_left(left)} of free LOOP time left" if left > 0.5 else
                     "Free LOOP time used up - get a license key for unlimited use")
@@ -1424,6 +1442,59 @@ class NameAlertControls(ttk.Frame):
         threading.Thread(target=work, daemon=True).start()
 
 
+class LicenseNoticePopup:
+    """Free LOOP time running out while on air (license.LicenseGate.events): a note on top of everything, so it's
+    seen over the meeting window, with a way to go LIVE or get a key. Hidden from screen shares."""
+
+    TITLES = {"free_5": "5 minutes of free LOOP time left", "free_1": "1 minute of free LOOP time left",
+              "grace_start": "Free LOOP time used up",
+              "grace_1": "1 minute until BRB cuts to LIVE", "offline": "License server unreachable"}
+
+    def __init__(self, main: "MainWindow", event: str, text: str):
+        self.main, self.e = main, main.e
+        self.on_air_only = True
+        self.win = tk.Toplevel(main.root)
+        self.win.title("BRB: " + self.TITLES.get(event, "LOOP time"))
+        self.win.resizable(False, False)
+        bg, fg = (BAD_TEXT, "white") if event == "grace_1" else (AMBER, INK)
+        self.win.configure(bg=bg)
+        self.win.attributes("-topmost", True)
+        self.win.protocol("WM_DELETE_WINDOW", self.close)
+        f = tk.Frame(self.win, bg=bg, padx=22, pady=16)
+        f.pack(fill="both")
+        tk.Label(f, text="\u23F1  " + self.TITLES.get(event, ""), bg=bg, fg=fg, font=F(15, "bold")).pack(anchor="w")
+        tk.Label(f, text=text, bg=bg, fg=fg, font=F(11), wraplength=px(440), justify="left").pack(anchor="w", pady=(6, 0))
+        row = tk.Frame(f, bg=bg)
+        row.pack(anchor="e", pady=(12, 0))
+        hk = main.cfg.hotkey.strip("<>").upper()
+        ttk.Button(row, text="OK", command=self.close).pack(side="right")
+        if not self.e.lic.unlimited and event != "offline":
+            ttk.Button(row, text="Get License Key", command=lambda: (main.open_license(), self.close())).pack(
+                side="right", padx=(0, 8))
+        ttk.Button(row, text=f"Go LIVE ({hk})", style="Accent.TButton",
+                   command=lambda: (self.e.request("toggle"), self.close())).pack(side="right", padx=(0, 8))
+        self.win.bind("<Escape>", lambda _e: self.close())
+        self.win.update_idletasks()
+        sw = self.win.winfo_screenwidth()
+        self.win.geometry(f"+{(sw - self.win.winfo_reqwidth()) // 2}+{px(60)}")
+        try:
+            winutil.hide_from_capture(self.win, True)
+        except Exception:  # noqa: BLE001
+            pass
+        self.win.lift()
+        winutil.flash(self.win)
+        if event not in ("grace_1", "offline", "grace_start"):
+            self.win.after(30000, self.close)          # the countdown stays on screen; the note needn't
+
+    def close(self) -> None:
+        try:
+            self.win.destroy()
+        except tk.TclError:
+            pass
+        if getattr(self.main, "lic_popup", None) is self:
+            self.main.lic_popup = None
+
+
 class NameAlertPopup:
     """Someone said your name while the LOOP was on air: a window on top of everything (hidden from screen shares),
     a flashing taskbar button and - if on - a sound every few seconds, until you're LIVE again or dismiss it."""
@@ -1950,6 +2021,10 @@ class MiniBar:
         full.place(relx=1.0, x=-px(10), y=px(68), anchor="ne")
         full.bind("<Button-1>", lambda _e: main.show_main())
         self.left_lbl = tk.Label(f, text="", bg=AMBER, fg=INK, font=F(8, "bold"), padx=6, pady=1)
+        # free time used up on air: get a key without leaving the Mini Bar (the cut button already says CUT TO LIVE)
+        self.key_btn = tk.Label(f, text="Get a license", bg=AMBER, fg=INK, font=F(8, "bold"), padx=8, pady=2,
+                                cursor="hand2")
+        self.key_btn.bind("<Button-1>", lambda _e: main.open_license())
         self.sync = ttk.Progressbar(f, maximum=100, style="Sync.Horizontal.TProgressbar")
         self.sync.place(x=0, rely=1.0, relwidth=1.0, height=px(6), anchor="sw")
         for w in (grip, self.thumb):
@@ -1997,8 +2072,20 @@ class MiniBar:
     def refresh(self, rgb) -> None:
         e = self.e
         left = e.lic.remaining() if e.mode == "loop" else None
-        if left is not None and left <= WARN_AT:            # free time running out: a small amber note
-            self.left_lbl.configure(text=f"{format_left(left)} left")
+        grace = e.lic.grace_left() if e.mode == "loop" else None
+        want_key = grace is not None and not e.lic.unlimited
+        if want_key and not self.key_btn.winfo_ismapped():
+            self.key_btn.place(relx=1.0, x=-px(10), y=px(94), anchor="ne")
+        elif not want_key and self.key_btn.winfo_ismapped():
+            self.key_btn.place_forget()
+        if grace is not None:                                # free time used up: time until the cut back to LIVE
+            left = grace
+        if left is not None and left <= WARN_AT or grace is not None:   # running out: a small amber (then red) note
+            red = left <= LAST_CALL or grace is not None
+            self.left_lbl.configure(text=(f"LIVE in {format_left(left)}" if left <= LAST_CALL else "Free time used up")
+                                    if grace is not None else
+                                    f"{format_left(left)} left", bg=BAD_TEXT if red else AMBER,
+                                    fg="white" if red else INK)
             if not self.left_lbl.winfo_ismapped():
                 self.left_lbl.place(x=px(8), y=px(8))
         elif self.left_lbl.winfo_ismapped():

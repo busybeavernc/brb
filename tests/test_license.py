@@ -92,7 +92,7 @@ def test_free_time_lease_cycle():
     assert g.lease_until == 0
 
 
-def test_time_runs_out_and_cuts_back():
+def test_time_runs_out_on_air_gives_a_grace_period_then_cuts_back():
     srv = FakeServer(free_left=0.4)
     g = gate(srv)
     ok, why = g.can_start()
@@ -104,8 +104,38 @@ def test_time_runs_out_and_cuts_back():
     assert _wait(lambda: g.lease_until > 0)
     time.sleep(1.1)                                   # the 1-second lease runs out; the renewal is refused
     g.on_air(True)
-    assert _wait(lambda: g.must_stop() != '')
+    assert _wait(lambda: g.must_stop() == '' and g.grace_left() is not None)
+    assert g.must_stop() == ''                        # still on air: 20 minutes to cut back to LIVE
+    assert 1190 < g.grace_left() <= 1200
+    assert g.events()[0] == 'grace_start'
+    g.grace_until = time.monotonic() + 50
+    assert g.events() == ['grace_1']
+    g.grace_until = time.monotonic() - 0.1            # the grace period is over
     assert 'used up' in g.must_stop()
+    g.on_air(False)                                   # once LIVE, no way back on air
+    assert g.grace_left() is None
+    srv.free_left = 0
+    g.refresh()
+    assert _wait(lambda: g.free_left == 0)
+    assert g.can_start()[0] is False
+
+
+def test_no_time_left_when_cutting_to_the_loop_means_no_grace():
+    srv = FakeServer(free_left=5.0)
+    g = gate(srv)
+    srv.free_left = 0                                 # used up elsewhere meanwhile: the app's number is stale
+    g.on_air(True)
+    assert _wait(lambda: g.lease_refused)
+    assert 'used up' in g.must_stop() and g.grace_left() is None
+
+
+def test_grace_length_comes_from_the_server():
+    class Server(FakeServer):
+        def __call__(self, path, body):
+            code, data = super().__call__(path, body)
+            return code, {**data, 'grace_seconds': 600}
+    g = gate(Server())
+    assert _wait(lambda: g.grace_total == 600)
 
 
 def test_five_minute_warning_once():
@@ -124,7 +154,7 @@ def test_offline_means_no_loop():
     assert not ok and 'internet' in why
 
 
-def test_lost_connection_on_air_cuts_back():
+def test_lost_connection_on_air_keeps_the_loop_until_you_cut_back():
     srv = FakeServer(unlimited=True)
     g = gate(srv)
     assert g.remaining() is None and g.summary().startswith('Unlimited')
@@ -132,6 +162,21 @@ def test_lost_connection_on_air_cuts_back():
     assert _wait(lambda: g.lease_until > 0)
     srv.online = False
     g.lease_until = time.monotonic() - 3              # the lease ran out and no renewal got through
+    assert g.must_stop() == '' and g.offline
+    assert g.events() == ['offline']
+    g.on_air(False)                                   # cut back to LIVE: and the LOOP can't go back on air offline
+    assert not g.offline
+    g.on_air(True)
+    g.started_at = time.monotonic() - L.START_GRACE - 1
+    assert 'internet' in g.must_stop()
+
+
+def test_offline_before_any_lease_cuts_back():
+    srv = FakeServer(unlimited=True)
+    g = gate(srv)
+    srv.online = False
+    g.on_air(True)
+    g.started_at = time.monotonic() - L.START_GRACE - 1
     assert 'internet' in g.must_stop()
 
 
@@ -328,4 +373,4 @@ def test_an_unsigned_lease_is_refused(monkeypatch):
     g._post = lambda path, body: (200, {"ok": True, "unlimited": True, "lease_seconds": 30, "_signed": False})
     g._body = lambda **k: {}
     g._call("lease", "start")
-    assert g.lease_refused and g.lease_until == 0.0 and "genuine" in g.message
+    assert g.lease_refused and g.refusal == "server" and "genuine" in g.message

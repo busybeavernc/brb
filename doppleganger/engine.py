@@ -27,7 +27,7 @@ from .player import LoopPlayer, latest_loop
 from .recorder import Recorder, State
 from .silhouette import Silhouette, glow_amount
 from . import macos
-from .license import LicenseGate, format_left
+from .license import LAST_CALL, LicenseGate, format_left
 from .tray import start_tray
 from . import brand
 
@@ -201,6 +201,9 @@ class Engine:
         # LOOP time: free hour per computer or a license key, leased from brb.happyhacks.io
         self.lic = LicenseGate(cfg, lambda: cfg.save(config_path), updater.current_version())
         self.cut = CutController()
+        self.lic_notice: tuple[str, str] | None = None     # the latest free-time notice (license.LicenseGate.events)
+        self.lic_notice_seq = 0
+        self.lic_last_call = False
         self.mode = "live"
         self.fade_from: str | None = None
         self.fade_start = 0.0
@@ -603,6 +606,11 @@ class Engine:
             self._hk = None
             log.warning("Global hotkeys disabled: %s", e)
 
+    @property
+    def face_guide_on(self) -> bool:
+        """Settings > face guide - and always in the last minute before a licensing cut, to line up in time."""
+        return bool(self.cfg.show_face_guide or getattr(self, "lic_last_call", False))
+
     def notify(self, msg: str, secs: float = 4.0) -> None:
         self.toast, self.toast_until = msg, time.monotonic() + secs
 
@@ -646,8 +654,23 @@ class Engine:
         self._apply_mic()
         self.voice.chime(new)
 
+    # what BRB says (and shows on top of everything) as free time runs out on air - see license.LicenseGate.events
+    LICENSE_NOTICES = {   # never says how long the grace period is: only that the cut back to LIVE is coming
+        "free_5": "5 minutes of free LOOP time left. Get a license key now to keep your LOOP on air without "
+                  "interruption.",
+        "free_1": "1 minute of free LOOP time left. Get a license key now to keep your LOOP on air.",
+        "grace_start": "Your free LOOP time is used up, and BRB will cut back to LIVE soon. Get a license key now to "
+                       "stay on air - or cut back to LIVE yourself when it suits you.",
+        "grace_1": "1 minute until BRB cuts back to LIVE. Get back to your starting position and look at your focus "
+                   "point: BRB cuts the moment you're in sync, so nobody sees a jump.",
+        "offline": "BRB lost its connection to the license server. Your LOOP stays on air until you cut back to LIVE "
+                   "(going back on air needs the connection).",
+    }
+
     def _license_tick(self) -> None:
-        """Every frame: keep LOOP time leased while the LOOP is on air; at 0:00 (or offline) cut back to LIVE."""
+        """Every frame: keep LOOP time leased while the LOOP is on air. Free time used up on air: a grace period, then
+        back to LIVE - in the last minute, at the first moment you're in sync. Lost the license server on air: the
+        LOOP stays on until you cut back."""
         on = self.mode == "loop"
         self.lic.on_air(on)
         if self.lic.unlimited != getattr(self, "_was_unlimited", self.lic.unlimited):
@@ -655,20 +678,39 @@ class Engine:
                 self.notify("License applied - unlimited LOOP time. Thank you!", 6)
         self._was_unlimited = self.lic.unlimited
         if not on:
+            self.lic_last_call = False
             return
         why = self.lic.must_stop()
         if why:
+            self.lic_last_call = False
             self._force_live(why)
-        elif self.lic.warn_now():
-            self.notify("5 minutes of free LOOP time left - then BRB cuts back to LIVE. "
-                        "Click Get License Key for unlimited use.", 12)
-            log.info("Free LOOP time: 5 minutes left")
+            return
+        for ev in self.lic.events():
+            self._license_notice(ev)
+        g = self.lic.grace_left()
+        self.lic_last_call = g is not None and g <= LAST_CALL     # face guide on, red countdown
+        if self.lic_last_call and self.sync >= SYNC_THRESHOLD and not self.cut.waiting:
+            log.info("Grace period ending: cut to LIVE while in sync")
+            self.toggle()
+            self.notify("BRB cut back to LIVE - your free LOOP time is used up. Get a license key for unlimited use.", 15)
+
+    def _license_notice(self, event: str) -> None:
+        text = self.LICENSE_NOTICES[event]
+        log.info("License notice: %s", event)
+        self.lic_notice = (event, text)
+        self.lic_notice_seq += 1
+        self.notify(text, 12)
+        self.voice.announce("lic_" + event)
 
     def _force_live(self, why: str) -> None:
-        """Cut to LIVE now, whatever else is going on (free time used up, or no connection to the license server)."""
+        """Cut to LIVE now, whatever else is going on (the grace period is over, or the LOOP never got time)."""
         log.info("Cut to LIVE by licensing: %s", why)
-        self.fade_from = None
+        if self.cfg.crossfade_ms > 0:
+            self.fade_from, self.fade_start = self.mode, time.monotonic()
+        else:
+            self.fade_from = None
         self.mode = "live"
+        self.voice.chime("live")
         self._apply_mic()
         self.notify(why, 15)
 
@@ -782,7 +824,7 @@ class Engine:
     def _draw_face_guide(self, prev: np.ndarray) -> None:
         """The loop's eyes, nose and mouth, and yours, with a hint to line them up - LIVE (before cutting to the loop)
         and on the LOOP (before coming back). Not in the Mini Bar: too small to read there."""
-        if not (self.cfg.show_face_guide and self.face_target is not None) or self.compact_preview:
+        if not (self.face_guide_on and self.face_target is not None) or self.compact_preview:
             return
         al, target, live = self.face_alignment, self.face_target, self.face_live
         guides.draw_face_guide(prev, target.points(), live.points() if live is not None else None,
@@ -801,6 +843,23 @@ class Engine:
         if self._tracer is None or self._tracer_bg is not self.background:
             self._tracer, self._tracer_bg = OutlineTracer(self.background), self.background
         return True
+
+    def _draw_grace_pulse(self, prev: np.ndarray) -> None:
+        """Free time used up on air: a red outline round the preview, pulsing (faster in the last minute), with the
+        time left until BRB cuts back to LIVE. Preview only - the meeting never sees it."""
+        g = self.lic.grace_left()
+        if g is None:
+            return
+        h, w = prev.shape[:2]
+        rate = 2.0 if g <= LAST_CALL else 0.8                       # pulses a second
+        a = 0.35 + 0.65 * (0.5 + 0.5 * np.sin(time.monotonic() * rate * 2 * np.pi))
+        t = max(4, w // 90) * (2 if self.compact_preview else 1)
+        ring = prev.copy()
+        cv2.rectangle(ring, (t // 2, t // 2), (w - 1 - t // 2, h - 1 - t // 2), brand.CV_DANGER, t)
+        cv2.addWeighted(ring, a, prev, 1 - a, 0, dst=prev)
+        if not self.compact_preview:   # the Mini Bar has its own note. (How long is left shows only in the last minute.)
+            guides.banner(prev, f"Free LOOP time used up - BRB cuts to LIVE in {format_left(g)}" if g <= LAST_CALL
+                          else "Free LOOP time used up - BRB cuts to LIVE soon", brand.CV_DANGER)
 
     def _draw_sync_glow(self, prev: np.ndarray, live: np.ndarray) -> None:
         """A green glow around you when the cut would be seamless - the same signal as at the end of recording a
@@ -1181,7 +1240,7 @@ class Engine:
                 time.sleep(2)
 
     def _face_tick(self) -> None:
-        if not (self.cfg.show_face_guide and self.cfg.show_guides):
+        if not (self.face_guide_on and self.cfg.show_guides):
             self.face_live = self.face_alignment = None
             return
         finder = facekeys.get()
@@ -1342,6 +1401,8 @@ class Engine:
             self._draw_sync_glow(prev, live)
         if self.cut.waiting:
             guides.banner(prev, f"Hold to sync - cutting when in sync ({int(self.sync * 100)}%)", brand.CV_VIOLET)
+        if self.mode == "loop":
+            self._draw_grace_pulse(prev)
         if self.camera_lost:
             guides.banner(prev, "Webcam disconnected - plug it back in, or choose another under Webcam"
                           if (self.camera_unplugged or not self.camera_problem) else

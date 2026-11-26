@@ -40,6 +40,12 @@ EVENTS = {   # file name (without .mp3) -> when it plays
     "loop_ready": "the new loop is ready",
     "rec_cancelled": "recording cancelled",
     "rec_tips_short": "optional, with the recording tips",
+    # free LOOP time running out while on air (always said, even with recording guidance off: they matter)
+    "lic_free_5": "5 minutes of free LOOP time left",
+    "lic_free_1": "1 minute of free LOOP time left",
+    "lic_grace_start": "free time used up on air: the grace period starts",
+    "lic_grace_1": "1 minute until BRB cuts back to LIVE",
+    "lic_offline": "lost the license server on air: the LOOP stays on",
 }
 
 
@@ -210,6 +216,14 @@ class Voice:
             path = chime_path(kind)
             if path:
                 self._p().play(path)
+
+    def announce(self, event: str) -> None:
+        """Something the person must hear whatever the settings (free time running out on air): the spoken line in
+        their voice, or - with no such file - the alert sound."""
+        path = self._path(event) or chime_path("alert")
+        if path:
+            log.info("Voice: %s", event)
+            self._p().play(path)
 
     def alert(self) -> None:
         """Name alert sound (Settings > Name alerts > sound), whatever the guidance/chime settings."""

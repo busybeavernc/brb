@@ -4,7 +4,11 @@
   - Time counts only while the LOOP is on air. The server keeps the count, per computer (device.py), so reinstalling
     or editing files can't reset it: the app *leases* LOOP time from the server (30 s at a time, renewed while the
     LOOP is on air, the unused part given back when it cuts to LIVE).
-  - The LOOP needs an internet connection: without a lease from the server, BRB cuts back to LIVE.
+  - The LOOP needs an internet connection to go on air: without a lease from the server, BRB stays LIVE.
+  - Already on air, nobody is cut off mid-meeting: when the free time runs out the LOOP stays on air for a grace
+    period (the server says how long: 20 minutes) - time to cut back to LIVE when it suits, or to buy a key. If the
+    license server can't be reached once the LOOP is on air, it stays on air until the person cuts back. Either way,
+    once the LOOP is off air it can't go back on without time from the server.
 
 The server's address is built in (not a setting), and every reply must carry the server's signature (Ed25519, public
 key below), answer this request's random nonce and name this computer. So a look-alike server - even one trusted
@@ -40,6 +44,8 @@ WATCH_FOR = 20 * 60.0   # (for up to 20 minutes)
 RENEW_BEFORE = 15.0     # renew a lease when this little of it is left (s)
 START_GRACE = 8.0       # after cutting to the LOOP, the server must answer within this (s)
 WARN_AT = 300.0         # "5 minutes of free LOOP time left"
+LAST_CALL = 60.0        # "1 minute left"
+GRACE = 1200.0          # on air when the free time runs out: stays on air this long (the server can change it)
 
 
 def server() -> str:
@@ -89,6 +95,7 @@ def format_left(seconds: float) -> str:
 
 class LicenseGate:
     _system_certs = False
+    grace_until, offline, refusal, had_lease, grace_total = 0.0, False, "", False, GRACE
     def __init__(self, cfg, save, version: str = "", transport=None):
         self.cfg, self._save, self.version = cfg, save, version
         self._post = transport or self._http_post
@@ -103,6 +110,7 @@ class LicenseGate:
         self.plan = "free"
         self.free_left = 0.0          # free time left after the current lease (server's number)
         self.free_total = 3600.0
+        self.grace_total = GRACE      # the server's grace_seconds
         self.license_url = SERVER + "/license"
         self.link_url = SERVER + "/account"        # "Link this computer to my account" (signed link from the server)
         self.offer = False
@@ -115,6 +123,11 @@ class LicenseGate:
         self.lease_until = 0.0        # time.monotonic() when the current lease ends (0 = none)
         self.lease_pending = False
         self.lease_refused = False
+        self.refusal = ""             # why the last lease was refused: "time" (no free time left) or "server"
+        self.had_lease = False        # got LOOP time from the server since going on air
+        self.grace_until = 0.0        # free time used up while on air: the LOOP stays on air until then
+        self.offline = False          # on air, and the license server can't be reached (or its reply can't be trusted)
+        self._fired: set[str] = set() # one-time warnings already given while on air
         self.started_at = 0.0         # when we asked to go on air
         self.final_lease = False      # the last bit of free time: it just runs out, no renewal
         self._last_ask = 0.0
@@ -150,30 +163,75 @@ class LicenseGate:
         lease_left = max(0.0, self.lease_until - time.monotonic()) if self.lease_until else 0.0
         return self.free_left + lease_left
 
+    def grace_left(self) -> float | None:
+        """On air after the free time ran out: seconds until BRB cuts back to LIVE (None = not in the grace period)."""
+        if not self.grace_until:
+            return None
+        return max(0.0, self.grace_until - time.monotonic())
+
     def must_stop(self) -> str:
-        """While the LOOP is on air: a reason to cut back to LIVE now, or ''."""
+        """While the LOOP is on air: a reason to cut back to LIVE now, or ''. Also starts the grace period (free time
+        used up while on air) and notices a lost connection - neither cuts anything by itself."""
         now = time.monotonic()
-        if self.lease_refused:
-            return self.message or "Your free LOOP time is used up."
-        if self.lease_until and now >= self.lease_until and not self.unlimited and self.free_left <= 0.5:
-            return "Your free LOOP time is used up."
-        if self.lease_until and now >= self.lease_until + 2:
-            return "Lost the connection to brb.happyhacks.io - the LOOP needs internet."
+        if self.unlimited and not self.lease_refused:
+            self.grace_until, self.offline = 0.0, False
+        if self.grace_until:
+            return "Your free LOOP time is used up." if now >= self.grace_until else ""
+        refused_time = self.lease_refused and self.refusal != "server"
+        # the last bit of free time (a short lease, not renewed) has run out
+        ran_out = bool(self.lease_until and now >= self.lease_until and not self.unlimited and self.final_lease)
+        if refused_time or ran_out:
+            if not self.had_lease:   # wasn't on air yet: no grace
+                return self.message or "Your free LOOP time is used up."
+            self.grace_until = now + max(0.0, self.grace_total)
+            self.offline = False
+            log.info("Free LOOP time used up on air: %d s of grace", self.grace_total)
+            return "" if self.grace_total > 0 else "Your free LOOP time is used up."
+        server_trouble = (self.lease_refused and self.refusal == "server") or \
+            (self.lease_until and now >= self.lease_until + 2)
+        if server_trouble:
+            if self.had_lease:       # on air already: stays on air until the person cuts back to LIVE
+                if not self.offline:
+                    log.info("License server unreachable on air: the LOOP stays on until you cut back to LIVE")
+                self.offline = True
+                return ""
+            return self.message or "Couldn't reach brb.happyhacks.io - the LOOP needs internet."
         if not self.lease_until and self.started_at and now - self.started_at > START_GRACE:
             return self.message or "Couldn't reach brb.happyhacks.io - the LOOP needs internet."
         return ""
 
+    def events(self) -> list[str]:
+        """While on air, each once: free_5 / free_1 (free time left), grace_start / grace_1 (the cut back to LIVE is
+        coming / a minute away - the grace period's length is never shown), offline (lost the license server - the LOOP stays on)."""
+        out: list[str] = []
+
+        def once(name: str, when: bool) -> None:
+            if when and name not in self._fired:
+                self._fired.add(name)
+                out.append(name)
+        g = self.grace_left()
+        if g is not None:
+            once("grace_start", True)
+            once("grace_1", g <= LAST_CALL)
+        elif self.offline:
+            once("offline", True)
+        else:
+            if "offline" in self._fired and not self.offline:
+                self._fired.discard("offline")     # back online: say it again if it drops again
+            r = self.remaining()
+            if r is not None:
+                once("free_5", r <= WARN_AT and self.free_total > WARN_AT + 30 and r > LAST_CALL)
+                once("free_1", r <= LAST_CALL)
+                if r > WARN_AT + 30:
+                    self._fired -= {"free_5", "free_1"}
+        # a warning that's already past isn't worth saying: free_5 with 30 s left would only confuse
+        if "free_1" in out:
+            out = [e for e in out if e != "free_5"]
+        return out
+
     def warn_now(self) -> bool:
-        """True once, when free time on air drops to 5 minutes."""
-        r = self.remaining()
-        if r is None or r > WARN_AT:
-            if r is not None and r > WARN_AT + 30:
-                self._warned = False
-            return False
-        if not self._warned:
-            self._warned = True
-            return True
-        return False
+        """(older callers) True once, when free time on air drops to 5 minutes."""
+        return "free_5" in self.events()
 
     # ---------- driven by the engine ----------
     def on_air(self, on: bool) -> None:
@@ -182,14 +240,24 @@ class LicenseGate:
         if on:
             if not self.started_at:
                 self.started_at = now
-                self.lease_refused = False
+                self.lease_refused, self.refusal = False, ""
+                self.had_lease = False
+                self.grace_until, self.offline = 0.0, False
+                self._fired = set()
+                self._ask("lease", "start")
+            elif self.grace_until and self.unlimited and not self.lease_pending:
+                # bought a key during the grace period: back to an ordinary (unlimited) lease
+                self.grace_until, self.lease_refused, self.refusal = 0.0, False, ""
+                self.started_at, self.lease_until, self.final_lease = now, 0.0, False
                 self._ask("lease", "start")
             elif (self.lease_until and not self.lease_pending and not self.final_lease
                   and self.lease_until - now < RENEW_BEFORE and now - self._last_ask > 3):
                 self._ask("lease", "renew")
-        elif self.started_at:
+        elif self.started_at:      # off air: any grace ends here - going back on air needs time from the server
             self.started_at = 0.0
             self.final_lease = False
+            self.had_lease = False
+            self.grace_until, self.offline = 0.0, False
             if self.lease_until or self.lease_pending:
                 self.lease_until = 0.0
                 self._ask("lease", "release")
@@ -313,13 +381,14 @@ class LicenseGate:
             self.message = ("Couldn't confirm the reply came from brb.happyhacks.io (something on this network or PC "
                             "changed it). The LOOP needs a genuine reply.")
             if kind == "lease" and action in ("start", "renew"):
-                self.lease_refused = True
-                self.lease_until = 0.0
+                self.lease_refused, self.refusal = True, "server"
             return
         if code != 200:
             self.message = str(data.get("error") or f"License server error ({code}).")
             if kind == "lease" and action in ("start", "renew"):
-                self.lease_refused = code < 500
+                if code < 500 and code != 429:
+                    self.lease_refused, self.refusal = True, "time"
+                    self.lease_until = 0.0
             return
         self._apply(data)
         if kind == "lease" and action in ("start", "renew"):
@@ -327,11 +396,13 @@ class LicenseGate:
                 if self.started_at:   # still on air: the lease runs from when we asked
                     secs = float(data.get("lease_seconds") or 0)
                     self.lease_until = sent_at + secs
+                    self.had_lease = True
+                    self.lease_refused, self.refusal, self.offline = False, "", False
                     self.final_lease = not self.unlimited and secs < 29   # less than a full lease: the last of the free time
                 else:                 # cut back to LIVE meanwhile: give it back
                     self._q.put(("lease", "release"))
             else:
-                self.lease_refused = True
+                self.lease_refused, self.refusal = True, "time"
                 self.lease_until = 0.0
                 self.message = str(data.get("message") or "Your free LOOP time is used up.")
 
@@ -342,6 +413,11 @@ class LicenseGate:
             self.plan = str(d.get("plan") or "free")
             self.free_left = float(d.get("free_left") or 0)
             self.free_total = float(d.get("free_total") or self.free_total)
+            if d.get("grace_seconds") is not None:
+                try:
+                    self.grace_total = max(0.0, min(4 * 3600.0, float(d["grace_seconds"])))
+                except (TypeError, ValueError):
+                    pass
             self.license_url = str(d.get("license_url") or self.license_url)
             self.link_url = str(d.get("link_url") or self.link_url)
             self.offer = bool(d.get("offer"))
