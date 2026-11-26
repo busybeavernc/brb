@@ -76,6 +76,8 @@ Filename: "{app}\{#MyAppExe}"; Parameters: "--install-camera"; StatusMsg: "Addin
   BeforeInstall: Working('Windows will ask for permission to add the camera: choose Yes to finish. This step can take up to a minute.'); \
   AfterInstall: DoneWorking
 Filename: "{app}\{#MyAppExe}"; Description: "Open BRB"; Flags: nowait postinstall skipifsilent
+; An update from inside BRB (the installer runs from %APPDATA%\BRB\updates): open the new BRB when done
+Filename: "{app}\{#MyAppExe}"; Flags: nowait; Check: FromInAppUpdate
 
 [UninstallRun]
 ; Remove the HappyHacks Virtual Camera (Windows asks for permission if it's installed).
@@ -93,6 +95,11 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Type: files; Name: "{app}\BRB.exe.new"
 
 [Code]
+function FromInAppUpdate: Boolean;
+begin
+  Result := WizardSilent and (Pos('\brb\updates\', Lowercase(ExpandConstant('{srcexe}'))) > 0);
+end;
+
 { The last steps (the publisher certificate, the virtual camera) run after the files are copied, when the progress
   bar is already full: show what's happening, and a moving bar so the installer doesn't look stuck. }
 procedure Working(Detail: String);

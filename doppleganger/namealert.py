@@ -261,17 +261,21 @@ class Checker:
 
 # ---------- capture ----------
 def _com_init() -> None:
+    """Get this thread ready for soundcard (WASAPI needs COM). soundcard sets COM up itself on the thread that first
+    imports it - and fails ("Error 0x100000001") if that thread had already set it up - so import it FIRST, then
+    join the same (multithreaded) COM apartment on any later thread."""
+    import warnings
+    warnings.filterwarnings("ignore", module="soundcard")
+    import soundcard  # noqa: F401 - the first import initialises COM on this thread
     try:
         import ctypes
-        ctypes.windll.ole32.CoInitializeEx(None, 0)     # soundcard (WASAPI) needs COM on this thread
+        ctypes.windll.ole32.CoInitializeEx(None, 0)       # later threads: OK or "already" - both fine
     except Exception:  # noqa: BLE001
         pass
 
 
 def _devices(mic: bool):
-    import warnings
-    warnings.filterwarnings("ignore", module="soundcard")   # "data discontinuity" while nothing plays
-    import soundcard as sc
+    import soundcard as sc   # (imported by _com_init first; its warnings - "data discontinuity" - are filtered there)
     if mic:
         return sc.default_microphone(), "microphone"
     spk = sc.default_speaker()

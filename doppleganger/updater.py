@@ -310,8 +310,11 @@ def start_detached(cmd: list[str]) -> None:
     start the script (WMI); only then start it plainly."""
     env = clean_environment()
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+    # Never run it from BRB's own folder: the installer closes every program using that folder (CloseApplications),
+    # and a script whose working folder is there counts - it was being closed mid-update, so BRB never reopened.
+    cwd = updates_dir()
     try:
-        subprocess.Popen(cmd, creationflags=flags | CREATE_BREAKAWAY_FROM_JOB, close_fds=True, env=env)
+        subprocess.Popen(cmd, creationflags=flags | CREATE_BREAKAWAY_FROM_JOB, close_fds=True, env=env, cwd=cwd)
         log.info("Update script started (left the job)")
         return
     except OSError as e:
@@ -319,9 +322,10 @@ def start_detached(cmd: list[str]) -> None:
     line = subprocess.list2cmdline(cmd).replace("'", "''")
     ps = ("$si = New-CimInstance -ClassName Win32_ProcessStartup -Property @{ShowWindow=[uint16]0} -ClientOnly; "
           "$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
-          f"-Arguments @{{CommandLine='{line}'; ProcessStartupInformation=$si}}; exit $r.ReturnValue")
+          f"-Arguments @{{CommandLine='{line}'; CurrentDirectory='{cwd.replace(chr(39), chr(39) * 2)}'; "
+          "ProcessStartupInformation=$si}}; exit $r.ReturnValue")
     try:
-        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], env=env,
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], env=env, cwd=cwd,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=30)
         if r.returncode == 0:
             log.info("Update script started through Windows")
@@ -329,7 +333,7 @@ def start_detached(cmd: list[str]) -> None:
         log.warning("Windows didn't start the update script (%s)", r.returncode)
     except Exception as e:  # noqa: BLE001
         log.warning("Couldn't start the update script through Windows: %s", e)
-    subprocess.Popen(cmd, creationflags=flags, close_fds=True, env=env)
+    subprocess.Popen(cmd, creationflags=flags, close_fds=True, env=env, cwd=cwd)
 
 
 def installer_script(setup: str, exe: str, pid: int) -> str:
@@ -340,6 +344,8 @@ def installer_script(setup: str, exe: str, pid: int) -> str:
     log_file = os.path.join(folder, "brb-update.log")
     install_log = os.path.join(folder, "brb-install.log")
     return f"""@echo off
+rem run from the updates folder, never BRB's own (the installer closes anything using BRB's folder)
+cd /d "{os.path.dirname(setup)}"
 echo %date% %time% waiting for BRB ({pid}) to close>"{log_file}"
 set tries=0
 :wait
@@ -353,10 +359,12 @@ goto wait
 :closed
 echo %date% %time% installing (waited %tries%)>>"{log_file}"
 "{setup}" {args} /LOG="{install_log}"
-echo %date% %time% installer finished: %errorlevel%>>"{log_file}"
+set result=%errorlevel%
+echo %date% %time% installer finished: %result%>>"{log_file}"
 del "{setup}" "{setup}.ready" "{setup}.tries" >nul 2>&1
-start "" "{exe}"
-echo %date% %time% BRB reopened>>"{log_file}"
+rem the installer opens the new BRB itself when it's done; if it failed, open the BRB that's still there
+if not "%result%"=="0" start "" "{exe}"
+echo %date% %time% BRB reopened (by the installer; by this script if the installer failed)>>"{log_file}"
 del "%~f0"
 """
 

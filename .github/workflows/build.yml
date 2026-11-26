@@ -34,7 +34,7 @@ permissions:                 # least privilege: only the release jobs can write
   contents: read
 
 env:
-  # Build numbers continue from the old "Build Windows app" workflow (last release v0.1.15).
+  # (0.1.x releases were numbered by build: run number + 15. From 1.0 on, see "Stamp version".)
   BUILD_OFFSET: 15
   # Downloads live in the public repo busybeavernc/brb-public (this code repo can be private).
   # PUBLIC_RELEASES_TOKEN: fine-grained token with Contents: read & write on that repo only.
@@ -113,8 +113,12 @@ jobs:
         id: ver
         shell: bash
         run: |
+          # MAJOR.MINOR from doppleganger/__init__.py; the last number counts the releases already published in
+          # that series (1.0.0, 1.0.1, ...). Releases before 1.0 used the build number instead (0.1.136 and earlier).
           base=$(python -c "import re;print('.'.join(re.search(r'\"(\d+)\.(\d+)', open('doppleganger/__init__.py').read()).groups()))")
-          v="$base.$(( ${{ github.run_number }} + BUILD_OFFSET ))"
+          n=$(GH_TOKEN="${{ github.token }}" gh api "repos/$PUBLIC_REPO/releases?per_page=100" --paginate \
+                --jq "[.[] | select(.tag_name | startswith(\"v$base.\")) | select(.draft | not)] | length" | awk '{s+=$1} END {print s+0}')
+          v="$base.${n:-0}"
           echo "VERSION = \"$v\"" > doppleganger/_build.py
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
@@ -296,8 +300,12 @@ jobs:
       - name: Stamp version
         id: ver
         run: |
+          # MAJOR.MINOR from doppleganger/__init__.py; the last number counts the releases already published in
+          # that series (1.0.0, 1.0.1, ...). Releases before 1.0 used the build number instead (0.1.136 and earlier).
           base=$(python -c "import re;print('.'.join(re.search(r'\"(\d+)\.(\d+)', open('doppleganger/__init__.py').read()).groups()))")
-          v="$base.$(( ${{ github.run_number }} + BUILD_OFFSET ))"
+          n=$(GH_TOKEN="${{ github.token }}" gh api "repos/$PUBLIC_REPO/releases?per_page=100" --paginate \
+                --jq "[.[] | select(.tag_name | startswith(\"v$base.\")) | select(.draft | not)] | length" | awk '{s+=$1} END {print s+0}')
+          v="$base.${n:-0}"
           echo "VERSION = \"$v\"" > doppleganger/_build.py
           echo "version=$v" >> "$GITHUB_OUTPUT"
 

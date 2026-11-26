@@ -130,6 +130,20 @@ def selftest() -> int:
         import tempfile
         from . import paths
         paths.data_dir = lambda: tempfile.gettempdir()   # the spotter writes its keyword list there
+        import threading
+        errors = []
+
+        def com_thread():               # soundcard on a fresh thread, then on another (as the test button does)
+            try:
+                namealert._com_init()
+            except Exception as e:  # noqa: BLE001
+                errors.append(e)
+        for _ in range(2):
+            t = threading.Thread(target=com_thread)
+            t.start()
+            t.join()
+        if errors:
+            raise errors[0]
         c = namealert.Checker(["Jim"])
         for _ in range(30):
             c.feed(np.zeros(1600, np.float32))

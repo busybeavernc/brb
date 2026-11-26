@@ -62,12 +62,12 @@ class Config:
     text_scale: float = 1.0             # Text size: 0.85 (smaller) ... 1.75 (largest); Ctrl/Cmd + and -
     show_guides: bool = True
     show_outlines: bool = True          # Aqua (you) / Violet (loop) outlines in the preview
-    show_face_guide: bool = True        # eyes / nose / mouth alignment guide in the preview (facekeys.py)
+    show_face_guide: bool = False       # eyes / nose / mouth alignment guide in the preview (facekeys.py)
     voice_guidance: bool = True         # spoken guidance while recording a loop (voice.py)
     voice_profile: str = ""             # voice name ("" = the default voice)
     meeting_chimes: bool = False        # soft chime on each cut (a meeting microphone may pick it up)
     scene_checks: bool = True           # warn if the camera moved, the background or your clothes changed
-    preview_room: bool = True           # preview shows the room behind you (off: just you, on a plain backdrop)
+    preview_room: bool = False          # preview shows the room behind you (off - the default: just you, plainly)
     name_alerts: bool = False           # while on the LOOP: alert me if someone says my name (namealert.py)
     alert_names: str = ""               # "Jim, Jimmy, Jim Smith"
     alert_sensitivity: str = "normal"   # low / normal / high

@@ -435,7 +435,7 @@ class MainWindow:
         hk = ("fn+" if IS_MAC else "") + self.cfg.hotkey.strip("<>").upper()
         ttk.Label(side, text=f"Tap: cut now  ·  Hold: cut when in sync  ({hk} / Space)",
                   style="Small.TLabel").grid(sticky="w")
-        ttk.Button(side, text="Rehearse cut", command=lambda: self.e.request("rehearse")).grid(
+        ttk.Button(side, text="Rehearse cut (P)", command=lambda: self.e.request("rehearse")).grid(
             sticky="ew", pady=(6, 0))
         ttk.Label(side, text="Plays the cut here as the meeting would see it. Nothing goes on air.",
                   style="Small.TLabel", wraplength=px(290), justify="left").grid(sticky="w")
@@ -550,6 +550,8 @@ class MainWindow:
             r.bind_all(f"<KeyPress-{kk}>", lambda _e: None if self._typing() else self.toggle_view())
         for kk in ("g", "G"):
             r.bind_all(f"<KeyPress-{kk}>", lambda _e: None if self._typing() else self.toggle_guides())
+        for kk in ("p", "P"):
+            r.bind_all(f"<KeyPress-{kk}>", lambda _e: self._key_action("rehearse"))
 
     def _typing(self) -> bool:
         w = self.root.focus_get()
@@ -1733,11 +1735,88 @@ class SettingsWindow:
         ttk.Button(up, text="Check now", command=lambda: self.e.request("update")).pack(side="right")
         self.restart_btn = ttk.Button(up, text="Restart to update", style="Accent.TButton",
                                       command=lambda: self.e.request("apply_update"))
-        ttk.Button(f, text="Done", style="Accent.TButton", command=self.close).grid(sticky="e", pady=(16, 0))
+        last_row = self._accordion(f)
+        ttk.Button(f, text="Done", style="Accent.TButton", command=self.close).grid(row=last_row + 1, sticky="e",
+                                                                                    pady=(16, 0))
         self.refresh()
         MainWindow._no_button_focus(self.win)
         center_on(self.win, main.root)
         self.win.after(150, main.apply_capture_setting)
+
+    # Settings fold into a few groups; one is open at a time (the last one you opened, while BRB runs).
+    GROUPS = (
+        ("Look & feel", ("Appearance", "Text size")),
+        ("License & help", ("License", "Help")),
+        ("Privacy & watermark", ("Privacy", "Watermark")),
+        ("Cuts & preview", ("Cuts & preview",)),
+        ("Recording & voice", ("Recording", "Voice")),
+        ("Name alerts", ("Name alerts",)),
+        ("Hotkeys", ("Hotkeys (work while your meeting app is in front)",)),
+        ("Camera", ("Finding you in the picture", "HappyHacks Virtual Camera", "OBS Virtual Camera")),
+        ("Updates", ("Updates",)),
+    )
+    open_group = "License & help"
+
+    def _accordion(self, f) -> int:
+        """Re-lay the Settings page as collapsible groups. Returns the last grid row used."""
+        f.update_idletasks()
+        f.grid_columnconfigure(0, minsize=f.winfo_reqwidth() - px(40))   # keep the width as groups open and close
+        widgets = sorted(f.grid_slaves(), key=lambda w: int(w.grid_info()["row"]))
+        title, rest = widgets[0], widgets[1:]
+        sections, current = {}, None             # section heading -> [heading label, widgets...]
+        for w in rest:
+            if isinstance(w, ttk.Label) and str(w.cget("style")) == "Head.TLabel":
+                current = str(w.cget("text"))
+                sections[current] = [w]
+            elif current is not None:
+                sections[current].append(w)
+        info = {w: {k: v for k, v in w.grid_info().items() if k not in ("in", "row", "column")} for w in rest}
+        for w in rest:
+            w.grid_forget()
+        self._groups: dict[str, tuple] = {}
+        row = int(title.grid_info()["row"]) + 1
+        placed = set()
+        groups = list(self.GROUPS)
+        leftovers = [t for t in sections if not any(t in names for _, names in groups)]
+        if leftovers:
+            groups.append(("More", tuple(leftovers)))
+        for name, names in groups:
+            present = [n for n in names if n in sections]
+            if not present:
+                continue
+            head = ttk.Label(f, text="", style="Head.TLabel", cursor="hand2")
+            head.grid(row=row, column=0, sticky="ew", pady=(10, 2))
+            row += 1
+            members = []
+            for n in present:
+                for i, w in enumerate(sections[n]):
+                    if i == 0 and len(present) == 1:
+                        continue                  # its own heading would repeat the group's name
+                    opts = dict(info[w])
+                    if i == 0:
+                        opts["pady"] = (8, 2)
+                    w.grid(row=row, column=0, **opts)
+                    members.append(w)
+                    placed.add(w)
+                    row += 1
+            self._groups[name] = (head, members)
+            head.bind("<Button-1>", lambda _e, n=name: self._open_group(n))
+        self._open_group(SettingsWindow.open_group if SettingsWindow.open_group in self._groups else None)
+        return row
+
+    def _open_group(self, name) -> None:
+        if name == SettingsWindow.open_group and getattr(self, "_shown", None) == name:
+            name = None                                 # clicking the open one closes it
+        SettingsWindow.open_group = name or SettingsWindow.open_group
+        self._shown = name
+        for g, (head, members) in self._groups.items():
+            is_open = g == name
+            head.configure(text=("\u25be  " if is_open else "\u25b8  ") + g)
+            for w in members:
+                if is_open:
+                    w.grid()
+                else:
+                    w.grid_remove()
 
     def _voice_sample(self) -> None:
         self.cfg.voice_profile = self.v_profile.get()
