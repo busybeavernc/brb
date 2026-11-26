@@ -385,6 +385,7 @@ def _pass_for(priv, dev, until, plan='unlimited'):
 
 def _key(monkeypatch):
     import base64 as b64
+    pytest.importorskip("cryptography")   # (the test signs a pass the way the site does; the app itself doesn't need it)
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     priv = Ed25519PrivateKey.generate()
