@@ -1922,13 +1922,14 @@ class SettingsWindow:
 
 
 class MiniBar:
-    """Compact always-on-top control strip to park beside Zoom."""
-
-    TW, TH = 192, 108
+    """Compact always-on-top window to park beside Zoom: just the preview - as big as possible, for lining up -
+    with small controls on top of it (BRB mark top left = drag handle, cut and Full view under the ON AIR sign,
+    the sync meter along the bottom)."""
 
     def __init__(self, main: MainWindow):
         self.main = main
         self.e = main.e
+        self.TW, self.TH = px(384), px(216)
         self.win = tk.Toplevel(main.root)
         self.win.withdraw()
         self.win.overrideredirect(True)
@@ -1937,32 +1938,32 @@ class MiniBar:
         self.visible = False
         self._blank = ImageTk.PhotoImage(Image.new("RGB", (self.TW, self.TH), MIDNIGHT))
         self._photo = None
-        f = tk.Frame(self.win, bg=MIDNIGHT, padx=8, pady=8)
+        f = tk.Frame(self.win, bg=MIDNIGHT, width=self.TW, height=self.TH)
         f.pack()
-        self._mark = _photo(brand.asset("icon.png"), 22)
-        grip = tk.Label(f, image=self._mark, bg=MIDNIGHT, cursor="fleur")
-        grip.grid(row=0, column=0, sticky="n", padx=(0, 8))
-        self.thumb = tk.Label(f, image=self._blank, bg=MIDNIGHT, bd=0)
-        self.thumb.grid(row=0, column=1)
-        right = tk.Frame(f, bg=MIDNIGHT)
-        right.grid(row=0, column=2, sticky="ns", padx=(10, 0))
-        self.state_lbl = tk.Label(right, text="LIVE", fg=INK, bg=AQUA, font=F(11, "bold"))
-        self.state_lbl.pack(fill="x")
-        self.sync = ttk.Progressbar(right, maximum=100, length=150, style="Sync.Horizontal.TProgressbar")
-        self.sync.pack(fill="x", pady=5)
-        self.cut = HoldButton(right, self.e, font_size=11)
-        self.cut.configure(pady=6)
-        self.cut.pack(fill="x")
-        row = tk.Frame(right, bg=MIDNIGHT)
-        row.pack(fill="x", pady=(5, 0))
+        f.pack_propagate(False)
+        self.thumb = tk.Label(f, image=self._blank, bg=MIDNIGHT, bd=0, cursor="fleur")
+        self.thumb.place(x=0, y=0, relwidth=1, relheight=1)
+        self._mark = _photo(brand.asset("icon.png"), px(22))
+        grip = tk.Label(f, image=self._mark, bg=MIDNIGHT, bd=0, cursor="fleur")
+        grip.place(x=px(8), y=px(8))
+        self.cut = HoldButton(f, self.e, font_size=9)
+        self.cut.configure(padx=8, pady=3)
+        self.cut.place(relx=1.0, x=-px(10), y=px(38), anchor="ne")
         vk = main.cfg.view_hotkey.strip("<>").upper()
-        ttk.Button(row, text=f"Full view ({vk})", command=main.show_main).pack(fill="x")
+        full = tk.Label(f, text=f"Full view ({vk})", bg=SURFACE, fg=CLOUD, font=F(8), padx=8, pady=2, cursor="hand2")
+        full.place(relx=1.0, x=-px(10), y=px(68), anchor="ne")
+        full.bind("<Button-1>", lambda _e: main.show_main())
+        self.left_lbl = tk.Label(f, text="", bg=AMBER, fg=INK, font=F(8, "bold"), padx=6, pady=1)
+        self.sync = ttk.Progressbar(f, maximum=100, style="Sync.Horizontal.TProgressbar")
+        self.sync.place(x=0, rely=1.0, relwidth=1.0, height=px(6), anchor="sw")
         for w in (grip, self.thumb):
             w.bind("<ButtonPress-1>", self._drag_start)
             w.bind("<B1-Motion>", self._drag)
             w.bind("<ButtonRelease-1>", self._drag_end)
         for kk in ("m", "M"):
             self.win.bind(f"<KeyPress-{kk}>", lambda _e: main.toggle_view())
+        for kk in ("p", "P"):
+            self.win.bind(f"<KeyPress-{kk}>", lambda _e: self.e.request("rehearse"))
         self.win.bind("<KeyPress-space>", main._space_down)
         self.win.bind("<KeyRelease-space>", main._space_up)
         self._place()
@@ -1999,11 +2000,13 @@ class MiniBar:
 
     def refresh(self, rgb) -> None:
         e = self.e
-        mode = e.mode
         left = e.lic.remaining() if e.mode == "loop" else None
-        label = mode.upper() + (f"  ·  {format_left(left)}" if left is not None and left <= WARN_AT else "")
-        self.state_lbl.configure(text=label, bg=AMBER if left is not None and left <= WARN_AT else MODE_BG[mode],
-                                 fg=INK if left is not None and left <= WARN_AT else MODE_FG[mode])
+        if left is not None and left <= WARN_AT:            # free time running out: a small amber note
+            self.left_lbl.configure(text=f"{format_left(left)} left")
+            if not self.left_lbl.winfo_ismapped():
+                self.left_lbl.place(x=px(8), rely=1.0, y=-px(12), anchor="sw")
+        elif self.left_lbl.winfo_ismapped():
+            self.left_lbl.place_forget()
         insync = e.sync >= SYNC_THRESHOLD
         self.sync.configure(value=int(e.sync * 100),
                             style="InSync.Horizontal.TProgressbar" if insync else "Sync.Horizontal.TProgressbar")

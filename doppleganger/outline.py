@@ -118,14 +118,14 @@ def _chaikin(pts: np.ndarray, rounds: int) -> np.ndarray:
     return pts
 
 
-def draw_shape(img: np.ndarray, contour: np.ndarray | None, color, alpha: float = 0.22) -> None:
+def draw_shape(img: np.ndarray, contour: np.ndarray | None, color, alpha: float = 0.22, edge: int = 2) -> None:
     """Translucent filled shape with a thin edge (the loop): stays visible under the live line."""
     if contour is None:
         return
     overlay = img.copy()
     cv2.fillPoly(overlay, [contour], color, cv2.LINE_AA)
     cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, dst=img)
-    cv2.polylines(img, [contour], True, color, 2, cv2.LINE_AA)
+    cv2.polylines(img, [contour], True, color, edge, cv2.LINE_AA)
 
 
 def draw(img: np.ndarray, contour: np.ndarray | None, color, thickness: int = 2) -> None:

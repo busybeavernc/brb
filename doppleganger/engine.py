@@ -804,11 +804,14 @@ class Engine:
             self._tracer, self._tracer_bg = OutlineTracer(self.background), self.background
         size = (prev.shape[1], prev.shape[0])
         mirrored = self.cfg.mirror_preview
+        # In the Mini Bar the preview is shrunk a lot: draw the lines bolder so they stay easy to see
+        bold = max(1, round(prev.shape[1] / 300)) if self.compact_preview else 1
         if other is not None:
             # the loop as a soft violet shape, you as an aqua line on top: in sync = line on the shape's edge
-            outline.draw_shape(prev, self._tracer.contour(other, size, mirrored, "other"), brand.CV_VIOLET)
+            outline.draw_shape(prev, self._tracer.contour(other, size, mirrored, "other"), brand.CV_VIOLET,
+                               edge=2 * bold)
         live_c = self._tracer.contour(live, size, mirrored, "live")
-        outline.draw(prev, live_c, brand.CV_AQUA)
+        outline.draw(prev, live_c, brand.CV_AQUA, thickness=2 * bold)
         now = time.monotonic()
         if now - getattr(self, "_outline_log_at", 0.0) > 10.0:  # diagnostics: what the tracer sees
             self._outline_log_at = now
@@ -817,6 +820,8 @@ class Engine:
                      "n/a" if other is None else ("drawn" if self._tracer._cache.get("other", (0, 0, None))[2]
                                                   is not None else "MISSING"),
                      self._tracer.stats)
+        if self.compact_preview:          # (no room for the labels in the Mini Bar)
+            return
         h = prev.shape[0]
         x = 14 + guides.put_text(prev, "you", (14, h - 14), 0.45, brand.CV_AQUA, bold=True)
         if other is not None:
