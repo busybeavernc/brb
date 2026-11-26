@@ -47,15 +47,19 @@ jobs:
         shell: pwsh
         run: |
           $log = "$env:TEMP\brb-handover.txt"
-          Start-Process "$env:APP\BRB.exe"
+          # like the Start-menu shortcut: started IN BRB's folder (the installer closes anything using that folder -
+          # that's how the update script used to get killed on real PCs)
+          $first = Start-Process "$env:APP\BRB.exe" -WorkingDirectory $env:APP -PassThru
           for ($i = 0; $i -lt 120; $i += 3) {
             Start-Sleep 3
             $procs = Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'BRB|cmd|tasklist|find|timeout|Setup' } |
               ForEach-Object { "{0}({1}) <- {2}" -f $_.Name, $_.ProcessId, $_.ParentProcessId }
             $lib = Test-Path "$env:APP\_internal"
             "t+${i}s  _internal=$lib  " + ($procs -join ", ")
-            $done = (Get-Content "$env:APPDATA\BRB\brb-update.log" -ErrorAction SilentlyContinue) -match 'reopened'
-            if ($done -and -not ($procs -match 'Setup')) { break }
+            $reopened = Get-CimInstance Win32_Process | Where-Object {
+              $_.Name -eq 'BRB.exe' -and $_.ProcessId -ne $first.Id -and $_.ExecutablePath -like "$env:APP*" }
+            $tried = Test-Path "$env:APPDATA\BRB\brb-install.log"
+            if ($tried -and $reopened -and -not ($procs -match 'Setup')) { break }
           }
           "--- install folder"; Get-ChildItem $env:APP | Format-Table Name, Length
           "--- updates folder"; Get-ChildItem "$env:APPDATA\BRB\updates" -ErrorAction SilentlyContinue | Format-Table Name, Length
@@ -63,6 +67,7 @@ jobs:
           "--- brb.log"; Get-Content "$env:APPDATA\BRB\brb.log" -ErrorAction SilentlyContinue
           "--- brb-error.log"; Get-Content "$env:APPDATA\BRB\brb-error.log" -ErrorAction SilentlyContinue
           "--- update log"; Get-Content "$env:APPDATA\BRB\brb-update.log" -ErrorAction SilentlyContinue
-          if (-not ((Get-Content "$env:APPDATA\BRB\brb-update.log" -ErrorAction SilentlyContinue) -match 'reopened')) {
-            "::error::the update didn't finish"; exit 1 }
+          if (-not $reopened) { "::error::BRB didn't reopen after the update"; exit 1 }
+          if (-not ((Get-Content "$env:APPDATA\BRB\brb-install.log" -ErrorAction SilentlyContinue) -match 'Installation process succeeded')) {
+            "::error::the installer didn't finish"; exit 1 }
           "--- installer log"; Get-Content "$env:APPDATA\BRB\brb-install.log" -Tail 40 -ErrorAction SilentlyContinue

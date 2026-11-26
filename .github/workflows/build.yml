@@ -113,12 +113,13 @@ jobs:
         id: ver
         shell: bash
         run: |
-          # MAJOR.MINOR from doppleganger/__init__.py; the last number counts the releases already published in
-          # that series (1.0.0, 1.0.1, ...). Releases before 1.0 used the build number instead (0.1.136 and earlier).
+          # MAJOR.MINOR from doppleganger/__init__.py; the last number is one more than the newest release published in
+          # that series (1.0.138 -> 1.0.139; a new series starts at .0). 0.1.x releases used the build number.
           base=$(python -c "import re;print('.'.join(re.search(r'\"(\d+)\.(\d+)', open('doppleganger/__init__.py').read()).groups()))")
-          n=$(GH_TOKEN="${{ github.token }}" gh api "repos/$PUBLIC_REPO/releases?per_page=100" --paginate \
-                --jq "[.[] | select(.tag_name | startswith(\"v$base.\")) | select(.draft | not)] | length" | awk '{s+=$1} END {print s+0}')
-          v="$base.${n:-0}"
+          last=$(GH_TOKEN="${{ github.token }}" gh api "repos/$PUBLIC_REPO/releases?per_page=100" --paginate \
+                --jq ".[] | select(.draft | not) | .tag_name | select(startswith(\"v$base.\")) | ltrimstr(\"v$base.\")" \
+                | awk 'BEGIN {m=-1} /^[0-9]+$/ {if ($1 > m) m=$1} END {print m}')
+          v="$base.$(( ${last:--1} + 1 ))"
           echo "VERSION = \"$v\"" > doppleganger/_build.py
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
@@ -300,12 +301,13 @@ jobs:
       - name: Stamp version
         id: ver
         run: |
-          # MAJOR.MINOR from doppleganger/__init__.py; the last number counts the releases already published in
-          # that series (1.0.0, 1.0.1, ...). Releases before 1.0 used the build number instead (0.1.136 and earlier).
+          # MAJOR.MINOR from doppleganger/__init__.py; the last number is one more than the newest release published in
+          # that series (1.0.138 -> 1.0.139; a new series starts at .0). 0.1.x releases used the build number.
           base=$(python -c "import re;print('.'.join(re.search(r'\"(\d+)\.(\d+)', open('doppleganger/__init__.py').read()).groups()))")
-          n=$(GH_TOKEN="${{ github.token }}" gh api "repos/$PUBLIC_REPO/releases?per_page=100" --paginate \
-                --jq "[.[] | select(.tag_name | startswith(\"v$base.\")) | select(.draft | not)] | length" | awk '{s+=$1} END {print s+0}')
-          v="$base.${n:-0}"
+          last=$(GH_TOKEN="${{ github.token }}" gh api "repos/$PUBLIC_REPO/releases?per_page=100" --paginate \
+                --jq ".[] | select(.draft | not) | .tag_name | select(startswith(\"v$base.\")) | ltrimstr(\"v$base.\")" \
+                | awk 'BEGIN {m=-1} /^[0-9]+$/ {if ($1 > m) m=$1} END {print m}')
+          v="$base.$(( ${last:--1} + 1 ))"
           echo "VERSION = \"$v\"" > doppleganger/_build.py
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
@@ -383,7 +385,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           base=$(python3 -c "import re;print('.'.join(re.search(r'\"(\d+)\.(\d+)', open('doppleganger/__init__.py').read()).groups()))")
-          v="$base.$(( ${{ github.run_number }} + BUILD_OFFSET ))"
+          last=$(gh api "repos/$PUBLIC_REPO/releases?per_page=100" --paginate \
+                --jq ".[] | select(.draft | not) | .tag_name | select(startswith(\"v$base.\")) | ltrimstr(\"v$base.\")" \
+                | awk 'BEGIN {m=-1} /^[0-9]+$/ {if ($1 > m) m=$1} END {print m}')
+          v="$base.$(( ${last:--1} + 1 ))"   # (same as "Stamp version" in the build jobs)
           notes="**Download:** https://brb.happyhacks.io/ (picks the right file for your computer).
 
           **Windows:** BRBSetup.exe. **Mac:** BRB-mac-arm64.dmg (Apple Silicon) or BRB-mac-x86_64.dmg (Intel) when this release includes them (otherwise the download page offers the latest Mac version); needs [OBS Studio](https://obsproject.com/download) 30+.
