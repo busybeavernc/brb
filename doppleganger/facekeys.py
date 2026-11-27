@@ -7,6 +7,7 @@ live picture, so you can sit exactly where you were: a cut is only seamless if y
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 
 import cv2
@@ -17,6 +18,7 @@ from . import brand
 log = logging.getLogger("doppleganger")
 
 DETECT_WIDTH = 640
+SWEEP_EVERY = 0.5     # seconds between wide searches while no face is found
 MATCH = 0.16          # a point counts as lined up within this fraction of the distance between the eyes
 
 
@@ -44,11 +46,53 @@ class FaceFinder:
         self._det = vision.FaceDetector.create_from_options(vision.FaceDetectorOptions(
             base_options=BaseOptions(model_asset_path=model_path or brand.asset("models/blaze_face_short_range.tflite")),
             min_detection_confidence=0.5))
+        self._last_win: tuple[int, int, int, int] | None = None
+        self._sweep_after = 0.0
 
     def find(self, frame: np.ndarray) -> Face | None:
-        """The largest face in `frame` (BGR), or None."""
+        """The largest face in `frame` (BGR), or None.
+        BlazeFace (short range) is made for faces near the camera: on the whole picture it misses a face narrower than
+        about 1/8 of the width (someone sitting back from the webcam). So when the whole picture finds nothing, it
+        looks again in zoomed-in squares - where the face was last time first, then across the picture."""
         h, w = frame.shape[:2]
-        small = cv2.resize(frame, (DETECT_WIDTH, round(h * DETECT_WIDTH / w)), interpolation=cv2.INTER_AREA)
+        face = self._detect(frame, 0, 0, w, h)
+        if face is not None:
+            return face
+        now = time.monotonic()
+        sweep = now >= self._sweep_after                 # nobody there (you're away): search widely twice a second
+        for win in self._windows(w, h) if sweep else [self._last_win] if self._last_win else []:
+            face = self._detect(frame, *win)
+            if face is not None:
+                self._last_win = win
+                return face
+        if sweep:
+            self._sweep_after = now + SWEEP_EVERY
+        return None
+
+    def _windows(self, w: int, h: int):
+        """Squares to search when the whole picture finds nothing: the last one that worked, then full-height squares
+        (left, centre, right), then smaller ones across the top part of the picture, where a seated person's face is."""
+        out = [self._last_win] if getattr(self, "_last_win", None) else []
+        for side, ys in ((min(w, h), (0,)), (int(min(w, h) * 0.6), (0, int(h * 0.2)))):
+            if side < 32:
+                continue
+            xs = sorted({0, (w - side) // 2, w - side} | ({(w - side) // 4, 3 * (w - side) // 4} if side < h else set()))
+            out += [(x, y, side, side) for y in ys for x in xs if y + side <= h]
+        seen, uniq = set(), []
+        for win in out:
+            if win not in seen:
+                seen.add(win)
+                uniq.append(win)
+        return uniq
+
+    def _detect(self, frame: np.ndarray, x0: int, y0: int, cw: int, ch: int) -> Face | None:
+        """Look in one part of the picture; points come back as fractions of the whole picture."""
+        h, w = frame.shape[:2]
+        crop = frame[y0:y0 + ch, x0:x0 + cw]
+        if crop.size == 0:
+            return None
+        dw = min(DETECT_WIDTH, cw)
+        small = cv2.resize(crop, (dw, max(2, round(ch * dw / cw))), interpolation=cv2.INTER_AREA)
         img = self._mp.Image(image_format=self._mp.ImageFormat.SRGB,
                              data=np.ascontiguousarray(cv2.cvtColor(small, cv2.COLOR_BGR2RGB)))
         res = self._det.detect(img)
@@ -58,7 +102,7 @@ class FaceFinder:
         k = d.keypoints
         if len(k) < 4:
             return None
-        return Face(*[(float(p.x), float(p.y)) for p in k[:4]])
+        return Face(*[((x0 + float(p.x) * cw) / w, (y0 + float(p.y) * ch) / h) for p in k[:4]])
 
 
 _finder: FaceFinder | None = None

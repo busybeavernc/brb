@@ -1084,6 +1084,8 @@ class Engine:
         return True
 
     # ---------- main loop (engine thread) ----------
+    MAX_FRAME_ERRORS = 300   # ~10 s of nothing but errors: something is really broken - stop (it's in the log)
+
     def run(self) -> None:
         self.running = True
         frame_dt = 1.0 / self.cfg.fps
@@ -1099,62 +1101,77 @@ class Engine:
         self._out_thread = threading.Thread(target=self._send_to_meeting, daemon=True, name="meeting-output")
         self._out_thread.start()
         self._ticks, self._ticks_at = 0, time.monotonic()
+        errors = 0                               # frames in a row that went wrong
         try:
             while self.running:
-                fresh = self.camera.latest()
-                self._showing_message = waiting_placeholder
-                if fresh is not None:
-                    live, waiting_placeholder = fresh, False
-                elif waiting_placeholder and not self.starting and self.camera_lost:
-                    live, waiting_placeholder = placeholder(self.cfg.width, self.cfg.height,
-                                                            "No webcam connected - plug one in"), False
-                if self.calibrator is not None:
-                    self._update_calibration(live)
-                self.recorder.update(live)
-                while self.recorder.events:
-                    self.voice.say(self.recorder.events.pop(0))
-                if self.recorder.result_path:
-                    self._load_loop(self.recorder.result_path)
-                    self.recorder.result_path = None
-                if self.recorder.message and self.recorder.state == State.IDLE:
-                    self.notify(self.recorder.message)
-                    self.recorder.message = ""
+                try:
+                    fresh = self.camera.latest()
+                    self._showing_message = waiting_placeholder
+                    if fresh is not None:
+                        live, waiting_placeholder = fresh, False
+                    elif waiting_placeholder and not self.starting and self.camera_lost:
+                        live, waiting_placeholder = placeholder(self.cfg.width, self.cfg.height,
+                                                                "No webcam connected - plug one in"), False
+                    if self.calibrator is not None:
+                        self._update_calibration(live)
+                    self.recorder.update(live)
+                    while self.recorder.events:
+                        self.voice.say(self.recorder.events.pop(0))
+                    if self.recorder.result_path:
+                        self._load_loop(self.recorder.result_path)
+                        self.recorder.result_path = None
+                    if self.recorder.message and self.recorder.state == State.IDLE:
+                        self.notify(self.recorder.message)
+                        self.recorder.message = ""
 
-                # Once activated, the loop runs on (by the clock) whether or not it's on air. What the meeting
-                # sees is sent by the steady output thread (_send_to_meeting); this loop does the heavy work.
-                self._last_live = live
-                raw_loop = self.player.frame_now() if (self.loop_running and self.player) else None
-                loop_frame = self.lit(raw_loop)
-                if not waiting_placeholder:
-                    self._latest_live, self._latest_loop = live, raw_loop
-                out = self._compose(live, loop_frame, fade=False)
+                    # Once activated, the loop runs on (by the clock) whether or not it's on air. What the meeting
+                    # sees is sent by the steady output thread (_send_to_meeting); this loop does the heavy work.
+                    self._last_live = live
+                    raw_loop = self.player.frame_now() if (self.loop_running and self.player) else None
+                    loop_frame = self.lit(raw_loop)
+                    if not waiting_placeholder:
+                        self._latest_live, self._latest_loop = live, raw_loop
+                    out = self._compose(live, loop_frame, fade=False)
 
-                self._license_tick()
-                self._update_sync(live, loop_frame, out)
-                if self.cut.tick(time.monotonic(), self.sync) == "cut":
-                    self.toggle()
-                now = time.monotonic()
-                if now - self._light_at > 1.0:
-                    self.live_light, self._light_at = library.lighting_of(live), now
-                    if self.player is not None and not waiting_placeholder:
-                        src = raw_loop if raw_loop is not None else self.player.first_frame
-                        keep = lightmatch.background_mask(self.loop_sil.weight_small if self.loop_sil else None)
-                        self.light.measure(src, live, keep)
-                self.preview_rgb = self.render_preview(out, live, loop_frame)
+                    self._license_tick()
+                    self._update_sync(live, loop_frame, out)
+                    if self.cut.tick(time.monotonic(), self.sync) == "cut":
+                        self.toggle()
+                    now = time.monotonic()
+                    if now - self._light_at > 1.0:
+                        self.live_light, self._light_at = library.lighting_of(live), now
+                        if self.player is not None and not waiting_placeholder:
+                            src = raw_loop if raw_loop is not None else self.player.first_frame
+                            keep = lightmatch.background_mask(self.loop_sil.weight_small if self.loop_sil else None)
+                            self.light.measure(src, live, keep)
+                    self.preview_rgb = self.render_preview(out, live, loop_frame)
 
-                if not self._handle_actions():
-                    break
-                self._ticks += 1
-                if now - self._ticks_at >= 30:   # how many pictures a second this computer manages (for the log)
-                    log.info("Engine: %.1f frames/s (target %d) in %s mode", self._ticks / (now - self._ticks_at),
-                             self.cfg.fps, self.mode.upper())
-                    self._ticks, self._ticks_at = 0, now
-                next_t += frame_dt
-                delay = next_t - time.monotonic()
-                if delay > 0:
-                    time.sleep(delay)
-                else:
+                    if not self._handle_actions():
+                        break
+                    self._ticks += 1
+                    if now - self._ticks_at >= 30:   # how many pictures a second this computer manages (for the log)
+                        log.info("Engine: %.1f frames/s (target %d) in %s mode", self._ticks / (now - self._ticks_at),
+                                 self.cfg.fps, self.mode.upper())
+                        self._ticks, self._ticks_at = 0, now
+                    next_t += frame_dt
+                    delay = next_t - time.monotonic()
+                    if delay > 0:
+                        time.sleep(delay)
+                    else:
+                        next_t = time.monotonic()
+                    errors = 0
+                except Exception:  # noqa: BLE001 - one bad frame mustn't close BRB
+                    errors += 1
+                    if errors == 1 or errors % 100 == 0:
+                        log.exception("Engine: a frame went wrong (%d in a row)", errors)
+                    if errors >= self.MAX_FRAME_ERRORS:
+                        log.error("Engine: stopping after %d bad frames in a row", errors)
+                        raise
+                    time.sleep(frame_dt)
                     next_t = time.monotonic()
+        except BaseException:
+            log.exception("Engine stopped")
+            raise
         finally:
             self.close()
             if self.on_quit:

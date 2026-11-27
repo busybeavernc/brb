@@ -29,8 +29,13 @@ def main() -> None:
         os._exit(rc)  # skip interpreter teardown (MediaPipe complains noisily during it)
 
     helper = args.install_camera or args.remove_camera   # run by the installer: keep the app's own log intact
-    logging.basicConfig(filename="brb-setup.log" if helper else "brb.log", filemode="w", level=logging.INFO,
+    log_name = "brb-setup.log" if helper else "brb.log"
+    if not helper:
+        _keep_previous_log(log_name)
+    logging.basicConfig(filename=log_name, filemode="w", level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
+    if not helper:
+        _log_crashes()
     log.info("BRB v%s starting in %s", updater.current_version(), os.getcwd())
 
     if args.minimized:
@@ -90,6 +95,41 @@ def main() -> None:
     logging.shutdown()
     # Everything is saved and released by now; don't let a stray tray/hotkey thread keep us alive.
     os._exit(0)
+
+
+def _keep_previous_log(name: str) -> None:
+    """brb.log starts fresh each time BRB opens; the run before it is kept as brb-previous.log (that's the one that
+    explains a crash or a problem, once BRB has been opened again)."""
+    try:
+        if os.path.exists(name):
+            os.replace(name, "brb-previous.log")
+    except OSError:
+        pass
+
+
+def _log_crashes() -> None:
+    """Errors that would otherwise vanish (a windowed app has no console): uncaught errors in any thread go to
+    brb.log, and a hard crash (in OpenCV, MediaPipe, the speech models...) writes where it happened to brb-crash.log."""
+    import faulthandler
+    import threading
+    import time as _time
+
+    def thread_error(a):
+        if a.exc_type is not SystemExit:
+            log.error("Uncaught error in thread %s", a.thread.name if a.thread else "?",
+                      exc_info=(a.exc_type, a.exc_value, a.exc_traceback))
+    threading.excepthook = thread_error
+    try:
+        f = open("brb-crash.log", "a", encoding="utf-8")   # kept open: faulthandler writes to it if BRB crashes
+        f.write(f"\n--- BRB v{updater.current_version()} started {_time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+        f.flush()
+        if f.tell() > 1_000_000:                              # keep it small: start over
+            f.close()
+            f = open("brb-crash.log", "w", encoding="utf-8")
+        faulthandler.enable(file=f, all_threads=True)
+        _log_crashes.file = f
+    except OSError:
+        pass
 
 
 def selftest() -> int:

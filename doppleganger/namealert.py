@@ -267,11 +267,63 @@ def _com_init() -> None:
     import warnings
     warnings.filterwarnings("ignore", module="soundcard")
     import soundcard  # noqa: F401 - the first import initialises COM on this thread
+    _fix_soundcard()
     try:
         import ctypes
         ctypes.windll.ole32.CoInitializeEx(None, 0)       # later threads: OK or "already" - both fine
     except Exception:  # noqa: BLE001
         pass
+
+
+def _float_format(channels: int, rate: int) -> bytes:
+    """A WAVEFORMATEXTENSIBLE for 32-bit float audio, in Windows' real (packed, 40-byte) layout."""
+    import struct
+    mask = {1: 0x4, 2: 0x3}.get(channels, 0)                     # mono: front centre; stereo: front left + right
+    return (struct.pack("<HHIIHHH", 0xFFFE, channels, rate, rate * channels * 4, channels * 4, 32, 22)
+            + struct.pack("<HI", 32, mask)
+            + struct.pack("<IHH8B", 3, 0, 0x10, 0x80, 0, 0, 0xAA, 0, 0x38, 0x9B, 0x71))   # KSDATAFORMAT_SUBTYPE_IEEE_FLOAT
+
+
+def _fix_soundcard() -> None:
+    """soundcard (0.4.x) only opens a sound device whose own mixing format matches the usual float layout it expects,
+    and it checks that with bare asserts - so a device that reports its format another way (some audio interfaces
+    and virtual/pro-audio devices do) fails with an AssertionError that has no message. When that happens, ask
+    Windows for 32-bit float ourselves instead: shared-mode WASAPI converts to it (AUTOCONVERTPCM, which soundcard
+    already asks for)."""
+    try:
+        import soundcard.mediafoundation as mf
+    except Exception:  # noqa: BLE001 - not Windows
+        return
+    cls = mf._AudioClient
+    if getattr(cls, "_brb_fixed", False):
+        return
+    orig = cls.__init__
+
+    def init(self, ptr, samplerate, channels, blocksize, isloopback, exclusive_mode=False):
+        try:
+            return orig(self, ptr, samplerate, channels, blocksize, isloopback, exclusive_mode)
+        except AssertionError:
+            log.info("Name alerts: this sound device uses an unusual format - asking Windows to convert it")
+        self._ptr = ptr
+        self.channelmap = list(range(channels)) if isinstance(channels, int) else list(channels)
+        n = len(set(self.channelmap))
+        if blocksize is None:
+            blocksize = self.deviceperiod[0] * samplerate
+        buf = mf._ffi.new("char[]", _float_format(n, int(samplerate)))
+        fmt = mf._ffi.cast("WAVEFORMATEXTENSIBLE *", buf)
+        flags = 0x00100000 | 0x80000000 | 0x08000000 | 0x00080000 | (0x00020000 if isloopback else 0)
+        hr = self._ptr[0][0].lpVtbl.Initialize(self._ptr[0], 0, flags, int(blocksize / samplerate * 10000000), 0, fmt,
+                                               mf._ffi.NULL)          # 0: shared mode
+        mf._com.check_error(hr)
+        self.samplerate = samplerate
+        self._idle_start_time = None
+    cls.__init__ = init
+    cls._brb_fixed = True
+
+
+def describe(e: BaseException) -> str:
+    """An error in words, even one without a message of its own."""
+    return str(e).strip() or type(e).__name__
 
 
 def _devices(mic: bool):
@@ -318,11 +370,13 @@ class Listener:
             return
         log.info("Name alerts: listening for %d name(s)", len(names))
         device_name = None
+        failures = 0
         while gen == self._gen:
             try:
                 dev, device_name = _devices(mic=False)
                 with dev.recorder(samplerate=CAPTURE_RATE, channels=1, blocksize=CAPTURE_RATE // 10) as rec:
                     checked = time.monotonic()
+                    failures, self.problem = 0, ""
                     while gen == self._gen:
                         data = rec.record(numframes=None)
                         if data is None or len(data) == 0:
@@ -338,7 +392,11 @@ class Listener:
                                 log.info("Name alerts: sound output changed")
                                 break
             except Exception as e:  # noqa: BLE001
-                log.warning("Name alerts: listening to %s failed: %s", device_name or "the sound output", e)
+                failures += 1
+                log.warning("Name alerts: listening to %s failed: %s", device_name or "the sound output", describe(e),
+                            exc_info=failures == 1)
+                if failures == 3:                    # shown once (Settings and the main window)
+                    self.problem = (f"Name alerts can't listen to {device_name or 'your sound output'}: {describe(e)}")
                 time.sleep(2)
         checker.ring.clear()
         log.info("Name alerts: stopped listening")

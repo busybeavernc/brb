@@ -308,6 +308,8 @@ class MainWindow:
         self._icon = ImageTk.PhotoImage(Image.open(brand.asset("icon.png")).resize((64, 64), Image.LANCZOS))
         self.root.iconphoto(True, self._icon)
         _brand_every_window(self._icon)
+        self._brand_root()
+        self.root.after(300, self._brand_root)   # again once the window is on screen
         apply_theme(self.root)
         set_text_scale(self.cfg.text_scale)
         self._photo = None
@@ -920,11 +922,22 @@ class MainWindow:
         self.cfg.mini_bar = True
         self.cfg.save(self.e.config_path)
 
+    def _brand_root(self) -> None:
+        """The BRB icon on the main window itself, not just as the default for new windows: on Windows, Tk can show
+        its own feather icon on a window that only has the default (after it's been hidden and shown again, say)."""
+        try:
+            self.root.iconphoto(False, self._icon)
+            if sys.platform == "win32":
+                self.root.iconbitmap(brand.asset("icon.ico"))
+        except tk.TclError:
+            pass
+
     def show_main(self) -> None:
         self.v_view.set("normal")
         if self.minibar is not None:
             self.minibar.hide()
         self.root.deiconify()
+        self._brand_root()
         self.root.lift()
         self.cfg.mini_bar = False
         self.cfg.save(self.e.config_path)
@@ -974,7 +987,7 @@ class MainWindow:
             self.root.after(300, self.show_minibar)
         if self.cfg.eula_accepted != EULA_VERSION:
             if self._start_minimized:
-                self.root.after(350, self.root.deiconify)   # the agreement needs the window
+                self.root.after(350, lambda: (self.root.deiconify(), self._brand_root()))   # the agreement needs the window
             self.root.after(500, lambda: setattr(self, "eula_dlg", EulaDialog(self)))
         else:
             self.root.after(0, self.after_eula)
@@ -1436,7 +1449,8 @@ class NameAlertControls(ttk.Frame):
                 else:
                     msg, col = "Didn't hear anything - check your microphone.", WARN_TEXT
             except Exception as e:  # noqa: BLE001
-                msg, col = f"The test couldn't run: {e}", BAD_TEXT
+                log.exception("Name alerts: the microphone test failed")
+                msg, col = f"The test couldn't run: {namealert.describe(e)}", BAD_TEXT
 
             def show():
                 if self.winfo_exists():
