@@ -58,6 +58,7 @@ class Config:
     badge_y: float = 0.86               # your chest, so meeting apps' background effects keep it)
     badge_size: float = 0.16            # its width, as a fraction of the picture's
     hide_from_screen_share: bool = True # Doppleganger's windows are invisible to screen sharing
+    crash_reports: bool = False         # send crash reports without asking (Settings > Privacy); off = ask after a crash
 
     # Window
     mirror_preview: bool = True

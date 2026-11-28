@@ -37,6 +37,9 @@ def main() -> None:
     if not helper:
         _log_crashes()
     log.info("BRB v%s starting in %s", updater.current_version(), os.getcwd())
+    if not helper:
+        from . import crash
+        crash.install(updater.current_version())
 
     if args.minimized:
         splash.close()  # started at sign-in: stay out of the way
@@ -92,6 +95,8 @@ def main() -> None:
         win = ui.MainWindow(engine, engine_thread=win._engine_thread, reopen=win.reopen)
         win.run()
     log.info("BRB closed")
+    from . import crash
+    crash.closed_normally()
     logging.shutdown()
     # Everything is saved and released by now; don't let a stray tray/hotkey thread keep us alive.
     os._exit(0)

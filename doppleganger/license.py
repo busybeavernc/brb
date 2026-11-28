@@ -106,6 +106,7 @@ class LicenseGate:
     def __init__(self, cfg, save, version: str = "", transport=None):
         self.cfg, self._save, self.version = cfg, save, version
         self._post = transport or self._http_post
+        self.has_loop = lambda: False   # set by the engine: is there a recorded loop? (counted by the website)
         self._require_signed = transport is None and bool(PUBLIC_KEYS)
         self._system_certs = False    # switched on if the bundled certificates are rejected (antivirus, company proxy)
         self._lock = threading.Lock()
@@ -402,7 +403,7 @@ class LicenseGate:
     def _body(self, **extra) -> dict:
         return {"device_id": device.device_id(), "device_name": device.device_name(), "platform": device.platform_name(),
                 "app_version": self.version, "key": self.key, "nonce": secrets.token_urlsafe(18),
-                "vm": device.is_virtual_machine(), **extra}
+                "vm": device.is_virtual_machine(), "has_loop": bool(self.has_loop()), **extra}
 
     def _http_post(self, path: str, body: dict) -> tuple[int, dict]:
         url = server() + path

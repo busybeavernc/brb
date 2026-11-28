@@ -17,7 +17,7 @@ from tkinter import messagebox, simpledialog, ttk
 import cv2
 from PIL import Image, ImageTk
 
-from . import brand, guides, helpdesk, library, macos, namealert, updater, winutil
+from . import brand, crash, guides, helpdesk, library, macos, namealert, updater, winutil
 from .brand import (AMBER, AQUA, BAD_TEXT, BORDER, CLOUD, DANGER, INK, IVORY, MIDNIGHT, MUTED, OK_TEXT, SURFACE, SURFACE_HI,
                     TEAL, TEAL_DARK, VIOLET, VIOLET_DARK, WARN_TEXT)
 from .cutcontrol import SYNC_THRESHOLD
@@ -298,6 +298,7 @@ class MainWindow:
         self._reopen = reopen                 # ("settings",) or ("wizard", page) to show again after a rebuild
         self.rebuild = False
         self.root = tk.Tk()
+        crash.tk_hook(self.root)
         self.root.title("BRB")
         self.root.geometry("1280x760")
         self.root.minsize(980, 620)
@@ -981,6 +982,8 @@ class MainWindow:
         elif self._reopen and self._reopen[0] == "wizard":
             self.root.after(250, lambda: self.open_wizard(page=self._reopen[1]))
         self.root.after(33, self.tick)
+        if not getattr(self.e, "crash_checked", False):   # once per run (the window is rebuilt for a new theme)
+            self.root.after(2500, self._crash_reports)
         if self._start_minimized:
             self.root.after(300, self.root.iconify)  # started with Windows: stay out of the way
         elif self.cfg.mini_bar:
@@ -1006,6 +1009,27 @@ class MainWindow:
         self.cfg.save(self.e.config_path)
         self.rebuild, self.reopen = True, reopen
         self.root.after(50, self.root.destroy)
+
+    def _crash_reports(self) -> None:
+        """Reports from earlier errors are waiting: send them (if allowed in Settings) or ask once."""
+        if getattr(self.e, "crash_checked", False):
+            return
+        self.e.crash_checked = True
+        waiting = crash.pending()
+        if not waiting:
+            return
+        if not self.cfg.crash_reports:
+            if not messagebox.askyesno(
+                    "BRB ran into a problem",
+                    "BRB hit an unexpected error last time. Send a crash report so we can fix it?\n\n"
+                    "It holds only technical details (the error, BRB's version and your operating system): no video, "
+                    "pictures, audio or files of yours.\n\nTo send reports without being asked, turn on "
+                    "Settings > Privacy > Send crash reports automatically.", parent=self.root):
+                crash.discard()
+                return
+        from . import device
+        threading.Thread(target=lambda: crash.send(self.e.lic, device.device_id()), daemon=True,
+                         name="crash-reports").start()
 
     def after_eula(self) -> None:
         """Once the license agreement is accepted: the setup guide opens every time BRB opens (it walks through
@@ -1700,6 +1724,11 @@ class SettingsWindow:
                         command=self._changed).grid(sticky="w")
         Toggle(f, text="Hide BRB's windows from screen sharing", variable=self.v_hide,
                         command=self._changed).grid(sticky="w")
+        self.v_crash = tk.BooleanVar(value=self.cfg.crash_reports)
+        Toggle(f, text="Send crash reports automatically", variable=self.v_crash,
+                        command=self._changed).grid(sticky="w")
+        ttk.Label(f, text="Only technical details of an error (no video, pictures or files). Off: BRB asks first.",
+                  style="Small.TLabel", wraplength=px(420), justify="left").grid(sticky="w", padx=(44, 0))
 
         ttk.Label(f, text="Watermark", style="Head.TLabel").grid(sticky="w", pady=(12, 2))
         self.v_badge = tk.BooleanVar(value=self.cfg.loop_badge)
@@ -1945,6 +1974,7 @@ class SettingsWindow:
         hide_changed = c.hide_from_screen_share != self.v_hide.get()
         c.mute_mic_on_loop = self.v_mute.get()
         c.hide_from_screen_share = self.v_hide.get()
+        c.crash_reports = self.v_crash.get()
         c.loop_badge = self.v_badge.get()
         c.show_guides = self.v_guides.get()
         c.show_outlines = self.v_outlines.get()

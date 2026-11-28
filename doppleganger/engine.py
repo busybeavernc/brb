@@ -200,6 +200,7 @@ class Engine:
         self.mic = MicMuter()
         # LOOP time: free hour per computer or a license key, leased from brb.happyhacks.io
         self.lic = LicenseGate(cfg, lambda: cfg.save(config_path), updater.current_version())
+        self.lic.has_loop = lambda: getattr(self, "player", None) is not None
         self.cut = CutController()
         self.lic_notice: tuple[str, str] | None = None     # the latest free-time notice (license.LicenseGate.events)
         self.lic_notice_seq = 0
