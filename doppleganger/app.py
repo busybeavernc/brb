@@ -39,7 +39,7 @@ def main() -> None:
     log.info("BRB v%s starting in %s", updater.current_version(), os.getcwd())
     if not helper:
         from . import crash
-        crash.install(updater.current_version())
+        crash.install(updater.current_version())   # after _log_crashes: reads its brb-crash.log
 
     if args.minimized:
         splash.close()  # started at sign-in: stay out of the way

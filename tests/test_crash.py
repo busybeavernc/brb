@@ -13,7 +13,10 @@ from doppleganger.license import LicenseGate
 @pytest.fixture()
 def here(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "data_dir", lambda: str(tmp_path))
-    monkeypatch.setattr(crash, "_state", {"version": "1.0.145", "saved": 0, "seen": set(), "fault": None})
+    monkeypatch.setattr(crash, "_state", {"version": "1.0.145", "saved": 0, "seen": set()})
+    monkeypatch.setattr(sys, "excepthook", sys.excepthook)
+    import threading
+    monkeypatch.setattr(threading, "excepthook", threading.excepthook)
     return tmp_path
 
 
@@ -67,14 +70,21 @@ def test_only_a_few_are_kept(here):
     assert len(crash.pending()) == crash.KEEP
 
 
-def test_native_crash_only_counts_after_an_unclean_exit(here):
-    d = crash.folder()
-    open(os.path.join(d, "native.log"), "w").write("Fatal Python error: Segmentation fault\n")
-    crash._collect_fault() if os.path.exists(os.path.join(d, "running.flag")) else None
-    assert crash.pending() == []                           # closed normally last time: ignored
-    open(os.path.join(d, "running.flag"), "w").write("1")
-    crash._collect_fault()
-    assert len(crash.pending()) == 1 and json.load(open(crash.pending()[0]))["kind"] == "native"
+def test_native_crash_only_counts_after_an_unclean_exit(here, monkeypatch):
+    log = here / "brb-crash.log"
+    log.write_text("\n--- BRB v1.0.144 started 2026-11-27 ---\nWindows fatal exception: access violation\n"
+                   "Current thread 0x1 (most recent call first):\n  File \"C:\\Users\\Ann\\x.py\", line 3\n"
+                   "\n--- BRB v1.0.145 started 2026-11-28 ---\n")
+    crash.install("1.0.145", fault_log=str(log))
+    assert crash.pending() == []                           # no flag: last run closed normally
+    crash.install("1.0.145", fault_log=str(log))           # flag left by the "run" above: it never closed
+    assert len(crash.pending()) == 1
+    body = json.load(open(crash.pending()[0]))
+    assert body["kind"] == "native" and "access violation" in body["report"] and "Ann" not in body["report"]
+    crash.closed_normally()
+    crash.discard()
+    crash.install("1.0.145", fault_log=str(log))
+    assert crash.pending() == []
 
 
 def test_status_says_whether_a_loop_exists():

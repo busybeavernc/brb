@@ -6,7 +6,6 @@ video, pictures, audio, meeting details or the person's files. User names are ta
 """
 from __future__ import annotations
 
-import faulthandler
 import glob
 import json
 import logging
@@ -25,7 +24,7 @@ log = logging.getLogger("doppleganger")
 KEEP = 5                  # reports kept waiting on this computer
 PER_SESSION = 3           # at most this many saved per run (a loop of the same error shouldn't fill the disk)
 _HOME = re.compile(r"([A-Za-z]:\\Users\\|/Users/|/home/)[^\\/\n\"']+", re.I)
-_state = {"version": "", "saved": 0, "seen": set(), "fault": None}
+_state = {"version": "", "saved": 0, "seen": set()}
 
 
 def folder() -> str:
@@ -75,7 +74,7 @@ def _platform() -> str:
         return sys.platform
 
 
-def install(version: str) -> None:
+def install(version: str, fault_log: str = "brb-crash.log") -> None:
     """Catch uncaught errors on every thread (Tk callbacks: see tk_hook), and hard crashes in native code."""
     _state["version"] = version
     old = sys.excepthook
@@ -94,16 +93,14 @@ def install(version: str) -> None:
         old_thread(args)
     threading.excepthook = thread_hook
 
-    try:   # a crash inside OpenCV / MediaPipe / the camera driver kills Python outright: faulthandler still writes
-        flag = os.path.join(folder(), "running.flag")
+    try:   # a hard crash (OpenCV, MediaPipe, the camera driver) skips all of the above: app.py's faulthandler
+        flag = os.path.join(folder(), "running.flag")      # writes it to brb-crash.log, read on the next start
         if os.path.exists(flag):   # the last run didn't close normally
-            _collect_fault()
+            _collect_fault(fault_log)
         with open(flag, "w") as f:
             f.write(str(os.getpid()))
-        _state["fault"] = open(os.path.join(folder(), "native.log"), "w", encoding="utf-8")
-        faulthandler.enable(_state["fault"], all_threads=True)
     except Exception:  # noqa: BLE001
-        log.debug("faulthandler not available", exc_info=True)
+        log.debug("crash flag", exc_info=True)
 
 
 def closed_normally() -> None:
@@ -112,16 +109,18 @@ def closed_normally() -> None:
     _remove(os.path.join(folder(), "running.flag"))
 
 
-def _collect_fault() -> None:
-    """The last run died in native code: turn what faulthandler wrote into a report."""
-    p = os.path.join(folder(), "native.log")
+def _collect_fault(fault_log: str) -> None:
+    """The last run died: if faulthandler wrote where (the previous run's part of brb-crash.log), report that."""
     try:
-        with open(p, encoding="utf-8", errors="replace") as f:
-            text = f.read().strip()
+        with open(fault_log, encoding="utf-8", errors="replace") as f:
+            text = f.read()
     except OSError:
         return
-    if text:
-        _write("native", text + "\n")
+    runs = text.split("\n--- BRB v")
+    last = runs[-2] if len(runs) >= 2 else ""     # runs[-1] is this run, just started
+    body = last.split("\n", 1)[1].strip() if "\n" in last else ""
+    if "Fatal Python error" in body or "fatal exception" in body:
+        _write("native", body[-20000:] + "\n")
 
 
 def tk_hook(root) -> None:
